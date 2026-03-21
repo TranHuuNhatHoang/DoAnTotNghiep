@@ -1,0 +1,14 @@
+2026/03/21-08:29:47.848 67b8 Reusing MANIFEST C:\xampp\htdocs\DoAnTotNghiep\shopee_profile\Default\Local Storage\leveldb/MANIFEST-000001
+2026/03/21-08:29:47.854 67b8 Recovering log #21
+2026/03/21-08:29:47.854 67b8 Level-0 table #23: started
+2026/03/21-08:29:47.889 67b8 Level-0 table #23: 44562 bytes OK
+2026/03/21-08:29:47.893 67b8 Delete type=0 #21
+2026/03/21-08:29:47.893 73dc Compacting 4@0 + 1@1 files
+2026/03/21-08:29:47.900 73dc Generated table #25@0: 36 keys, 75958 bytes
+2026/03/21-08:29:47.900 73dc Compacted 4@0 + 1@1 files => 75958 bytes
+2026/03/21-08:29:47.901 73dc compacted to: files[ 0 1 0 0 0 0 0 ]
+2026/03/21-08:29:47.902 73dc Delete type=2 #12
+2026/03/21-08:29:47.902 73dc Delete type=2 #14
+2026/03/21-08:29:47.902 73dc Delete type=2 #17
+2026/03/21-08:29:47.902 73dc Delete type=2 #20
+2026/03/21-08:29:47.902 73dc Delete type=2 #23

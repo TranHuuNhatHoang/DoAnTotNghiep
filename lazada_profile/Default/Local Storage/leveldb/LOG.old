@@ -1,0 +1,6 @@
+2026/03/18-17:56:16.070 7594 Reusing MANIFEST C:\xampp\htdocs\DoAnTotNghiep\lazada_profile\Default\Local Storage\leveldb/MANIFEST-000001
+2026/03/18-17:56:16.076 7594 Recovering log #4
+2026/03/18-17:56:16.079 7594 Reusing old log C:\xampp\htdocs\DoAnTotNghiep\lazada_profile\Default\Local Storage\leveldb/000004.log 
+2026/03/18-17:57:16.085 82c4 Level-0 table #7: started
+2026/03/18-17:57:16.092 82c4 Level-0 table #7: 277944 bytes OK
+2026/03/18-17:57:16.094 82c4 Delete type=0 #4
