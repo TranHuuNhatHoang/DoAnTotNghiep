@@ -10,60 +10,25 @@
         :root { --sidebar-width: 260px; }
         body { background-color: #f4f7f6; font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; }
         
-        /* Sidebar Styling */
+        /* Cấu hình CSS cho Sidebar (Kế thừa cho file include) */
         .sidebar { width: var(--sidebar-width); height: 100vh; position: fixed; background: #2c3e50; color: white; transition: all 0.3s; z-index: 1000; }
         .sidebar-header { padding: 20px; text-align: center; background: #1a252f; }
-        .main-content { margin-left: var(--sidebar-width); padding: 30px; transition: all 0.3s; }
-        
-        /* Nav Links */
-        .nav-link { color: #bdc3c7; padding: 12px 20px; border-radius: 0; transition: 0.3s; margin: 5px 15px; border-radius: 8px; }
+        .nav-link { color: #bdc3c7; padding: 12px 20px; transition: 0.3s; margin: 5px 15px; border-radius: 8px; }
         .nav-link:hover { color: white; background: #34495e; }
         .nav-link.active { color: white; background: #3498db; box-shadow: 0 4px 10px rgba(52, 152, 219, 0.3); }
-        .nav-link i { width: 25px; }
-
-        /* Cards & Tables */
+        .main-content { margin-left: var(--sidebar-width); padding: 30px; transition: all 0.3s; }
+        
+        /* Cards & Tables Styling */
         .stat-card { border: none; border-radius: 15px; transition: 0.3s; border-left: 5px solid #3498db; }
         .stat-card:hover { transform: translateY(-5px); box-shadow: 0 10px 20px rgba(0,0,0,0.05) !important; }
         .table-card { border: none; border-radius: 15px; overflow: hidden; }
         .product-name { font-weight: 600; color: #2c3e50; }
-        
         .badge-soft-success { background-color: #d1f2eb; color: #16a085; }
     </style>
 </head>
 <body>
 
-<div class="sidebar d-flex flex-column">
-    <div class="sidebar-header mb-3">
-        <h4 class="fw-bold mb-0 text-primary"><i class="fas fa-chart-line me-2"></i>PRICE ADMIN</h4>
-        <small class="text-muted">v2.1 Professional</small>
-    </div>
-    
-    <ul class="nav nav-pills flex-column mb-auto">
-        <li class="nav-item">
-            <a href="index.php?role=admin&controller=dashboard&action=index" class="nav-link active">
-                <i class="fas fa-home me-2"></i> Dashboard
-            </a>
-        </li>
-        <li>
-            <a href="index.php?role=admin&controller=bot&action=index" class="nav-link">
-                <i class="fas fa-robot me-2"></i> Quản lý Bot
-            </a>
-        </li>
-        <li>
-            <a href="#" class="nav-link"><i class="fas fa-box me-2"></i> Tất cả sản phẩm</a>
-        </li>
-        <li>
-            <a href="#" class="nav-link"><i class="fas fa-bell me-2"></i> Cảnh báo giá</a>
-        </li>
-    </ul>
-    
-    <hr class="mx-3 bg-secondary">
-    <div class="px-3 pb-4">
-        <a href="index.php?role=user&controller=product&action=index" class="btn btn-outline-danger w-100 rounded-pill shadow-sm">
-            <i class="fas fa-sign-out-alt me-2"></i> Thoát về trang User
-        </a>
-    </div>
-</div>
+<?php include 'sidebar.php'; ?>
 
 <div class="main-content">
     <div class="container-fluid">
@@ -78,21 +43,68 @@
             </a>
         </div>
 
-        <div class="row mb-4">
-            <div class="col-md-4">
-                <div class="card stat-card bg-white shadow-sm p-3">
+        <div class="row mb-4 g-3">
+            <div class="col-md-3">
+                <div class="card stat-card bg-white shadow-sm p-3 h-100" style="border-left-color: #3498db;">
                     <div class="d-flex align-items-center">
-                        <div class="bg-primary text-white p-3 rounded-3 me-3">
+                        <div class="bg-soft-primary text-primary p-3 rounded-3 me-3" style="background-color: #ebf5fb;">
                             <i class="fas fa-boxes fa-2x"></i>
                         </div>
                         <div>
-                            <h6 class="text-muted mb-0">Tổng sản phẩm</h6>
+                            <h6 class="text-muted mb-0">Sản phẩm gốc</h6>
                             <h3 class="fw-bold mb-0"><?php echo count($products); ?></h3>
                         </div>
                     </div>
                 </div>
             </div>
+
+            <div class="col-md-3">
+                <div class="card stat-card bg-white shadow-sm p-3 h-100" style="border-left-color: #2ecc71;">
+                    <div class="d-flex align-items-center">
+                        <div class="bg-soft-success text-success p-3 rounded-3 me-3" style="background-color: #e8f8f5;">
+                            <i class="fas fa-link fa-2x"></i>
+                        </div>
+                        <div>
+                            <h6 class="text-muted mb-0">Link đang theo dõi</h6>
+                            <h3 class="fw-bold mb-0"><?php echo isset($botStats['total_links']) ? $botStats['total_links'] : 0; ?></h3>
+                        </div>
+                    </div>
+                </div>
             </div>
+
+            <div class="col-md-3">
+                <div class="card stat-card bg-white shadow-sm p-3 h-100" style="border-left-color: #e74c3c;">
+                    <div class="d-flex align-items-center">
+                        <div class="bg-soft-danger text-danger p-3 rounded-3 me-3" style="background-color: #fdedec;">
+                            <i class="fas fa-exclamation-triangle fa-2x"></i>
+                        </div>
+                        <div>
+                            <h6 class="text-muted mb-0">Link lỗi / Chặn</h6>
+                            <h3 class="fw-bold mb-0 text-danger"><?php echo isset($botStats['error_links']) ? $botStats['error_links'] : 0; ?></h3>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <div class="col-md-3">
+                <div class="card stat-card bg-white shadow-sm p-3 h-100" style="border-left-color: #f39c12;">
+                    <div class="d-flex align-items-center h-100">
+                        <div class="w-100">
+                            <h6 class="text-muted mb-2"><i class="fas fa-chart-pie me-1"></i> Mật độ dữ liệu</h6>
+                            <div class="d-flex justify-content-between small">
+                                <?php if(!empty($botStats['platforms'])): ?>
+                                    <?php foreach($botStats['platforms'] as $plat): ?>
+                                        <span class="badge bg-secondary"><?php echo $plat['platform_name']; ?>: <?php echo $plat['count']; ?></span>
+                                    <?php endforeach; ?>
+                                <?php else: ?>
+                                    <span class="badge bg-secondary">Chưa có dữ liệu</span>
+                                <?php endif; ?>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
 
         <div class="card table-card shadow-sm">
             <div class="card-header bg-white py-3 border-0 d-flex justify-content-between align-items-center">
@@ -150,7 +162,7 @@
                             <?php else: ?>
                                 <tr>
                                     <td colspan="5" class="text-center py-5">
-                                        <img src="https://cdn-icons-png.flaticon.com/512/4076/4076432.png" height="80" class="mb-3 opacity-50">
+                                        <img src="https://cdn-icons-png.flaticon.com/512/4076/4076432.png" height="80" class="mb-3 opacity-50" alt="No Data">
                                         <p class="text-muted">Chưa có sản phẩm nào. Hãy thêm sản phẩm đầu tiên!</p>
                                     </td>
                                 </tr>

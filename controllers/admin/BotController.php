@@ -3,6 +3,14 @@ class BotController {
     private $db;
 
     public function __construct($db) {
+        if (session_status() === PHP_SESSION_NONE) { session_start(); }
+        
+        // --- TRẠM GÁC PHÂN QUYỀN ---
+        if (!isset($_SESSION['user_role']) || $_SESSION['user_role'] !== 'admin') {
+            // Không phải admin -> Đá về trang chủ và báo lỗi (hoặc trang 403)
+            header("Location: index.php?error=access_denied");
+            exit();
+        }
         $this->db = $db;
     }
 
@@ -23,30 +31,69 @@ class BotController {
      * Hàm kích hoạt Bot Python từ Web
      * URL: index.php?role=admin&controller=bot&action=run&type=shopee
      */
+    /**
+     * Hàm kích hoạt Bot Python từ Web
+     * URL: index.php?role=admin&controller=bot&action=run&type=shopee
+     */
     public function run() {
-        set_time_limit(0);
+        set_time_limit(0); // Cho phép PHP chạy không giới hạn thời gian
         $type = isset($_GET['type']) ? $_GET['type'] : '';
-        $output = "";
+        $output_array = [];
+        $return_var = 0; // Biến lưu mã thoát của Python (0 = Thành công, 1 = Bị lỗi/Captcha)
 
-        // Chú ý: Đường dẫn tới python và file .py phải chính xác
-        // Bạn có thể dùng đường dẫn tuyệt đối nếu shell_exec không tìm thấy file
+        // Thực thi Bot tương ứng
         switch ($type) {
             case 'shopee':
-                $output = shell_exec("python shopee_crawler.py 2>&1");
+                exec("python shopee_crawler.py 2>&1", $output_array, $return_var);
                 break;
             case 'tiki':
-                $output = shell_exec("python tiki_scraper.py 2>&1");
+                exec("python tiki_scraper.py 2>&1", $output_array, $return_var);
+                break;
+            case 'lazada': // Thêm case cho Lazada
+                exec("python lazada_crawler.py 2>&1", $output_array, $return_var);
                 break;
             case 'matcher':
-                $output = shell_exec("python auto_matcher.py 2>&1");
+                exec("python multi_platform_matcher.py 2>&1", $output_array, $return_var);
                 break;
             default:
-                $output = "Loại Bot không hợp lệ.";
+                $output_array[] = "Loại Bot không hợp lệ.";
+                $return_var = -1;
         }
 
-        // Lưu thông báo vào Session để hiển thị kết quả sau khi Redirect
+        // Chuyển mảng kết quả thành chuỗi
+        $output_string = implode("\n", $output_array);
+
         session_start();
-        $_SESSION['bot_message'] = "Kết quả thực thi Bot $type: <br><pre>$output</pre>";
+        
+        // Kiểm tra mã thoát (Return Variable)
+        if ($return_var === 1) {
+            // Nếu Python trả về 1 (Chạy lệnh sys.exit(1) do đụng Captcha)
+            $_SESSION['bot_status'] = 'error';
+            $_SESSION['bot_message'] = "
+                <div class='text-danger fw-bold mb-2'>
+                    <i class='fas fa-exclamation-triangle'></i> BÁO ĐỘNG ĐỎ: BOT BỊ CHẶN (CAPTCHA/LOGIN)!
+                </div>
+                <div class='text-warning mb-3'>
+                    Hệ thống đã tự động kích hoạt chế độ tự vệ (Dừng khẩn cấp) để bảo toàn dữ liệu.<br>
+                    <strong>Yêu cầu:</strong> Vui lòng mở Command Prompt (CMD) tại thư mục chứa mã nguồn và chạy lệnh thủ công để giải quyết Captcha.
+                </div>
+                <hr style='border-color: #555;'>
+                <div class='text-secondary small'>Chi tiết Log:</div>
+                <pre class='text-danger' style='margin-top: 10px;'>$output_string</pre>";
+        } elseif ($return_var === 0) {
+            // Nếu Python trả về 0 (Thành công trọn vẹn)
+            $_SESSION['bot_status'] = 'success';
+            $_SESSION['bot_message'] = "
+                <div class='text-success fw-bold mb-2'>
+                    <i class='fas fa-check-circle'></i> BOT THỰC THI THÀNH CÔNG!
+                </div>
+                <hr style='border-color: #555;'>
+                <pre>$output_string</pre>";
+        } else {
+            // Lỗi hệ thống khác
+            $_SESSION['bot_status'] = 'warning';
+            $_SESSION['bot_message'] = "<pre>$output_string</pre>";
+        }
         
         header("Location: index.php?role=admin&controller=bot&action=index");
         exit();

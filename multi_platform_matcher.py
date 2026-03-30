@@ -1,167 +1,172 @@
 import undetected_chromedriver as uc
 from selenium.webdriver.common.by import By
-from selenium.webdriver.support.ui import WebDriverWait
-from selenium.webdriver.support import expected_conditions as EC
 import mysql.connector
-import time, os, random, re, sys, urllib.parse
-from thefuzz import fuzz
-from datetime import datetime
+import time
+import os
+import random
+from thefuzz import fuzz # Thư viện so khớp chuỗi
+import sys
 
 sys.stdout.reconfigure(encoding='utf-8')
 
-print("🤖 BOT ĐI SĂN ĐA SÀN 2.7 - SYNCHRONIZED WITH WEB_TEST DB")
+print("🤖 KHỞI ĐỘNG BOT TỰ ĐỘNG GOM NHÓM (MULTI-PLATFORM FUZZY MATCHER)...")
 
 # ==========================================
-# 1. CÔNG CỤ XỬ LÝ DỮ LIỆU
+# 1. HÀM TÌM SẢN PHẨM CHƯA CÓ LINK THEO NỀN TẢNG
 # ==========================================
-def parse_number(txt):
-    """Chuyển đổi các chuỗi '1.2k', 'Đã bán 500' -> số nguyên 1200, 500"""
-    if not txt: return 0
+def get_products_missing_platform(platform_name):
+    """Lấy các sản phẩm gốc (Tiki) mà chưa được map với link của nền tảng chỉ định"""
     try:
-        match = re.search(r'([\d\.,]+)\s*(k|tr|K)?', txt)
-        if not match: return 0
-        val = float(match.group(1).replace(',', '.'))
-        unit = match.group(2).lower() if match.group(2) else ""
-        if unit == 'k': val *= 1000
-        elif unit == 'tr': val *= 1000000
-        return int(val)
-    except: return 0
-
-def clean_price(txt):
-    if not txt: return 0
-    return int(re.sub(r'[^\d]', '', txt))
-
-# ==========================================
-# 2. TƯƠNG TÁC DATABASE (PORT 3307)
-# ==========================================
-def connect_db():
-    return mysql.connector.connect(
-        host="127.0.0.1", port=3307, user="root", password="", database="web_test"
-    )
-
-def get_target_products(platform):
-    """Lấy sản phẩm chưa có link của sàn tương ứng"""
-    db = connect_db()
-    cursor = db.cursor(dictionary=True)
-    # Sử dụng đúng tên cột 'name' và logic LEFT JOIN từ SQL của bạn
-    sql = f"""
-        SELECT p.id, p.name 
-        FROM products p 
-        LEFT JOIN platform_links pl ON p.id = pl.product_id AND pl.platform_name = '{platform}'
-        WHERE pl.id IS NULL
-    """
-    cursor.execute(sql)
-    res = cursor.fetchall()
-    db.close()
-    return res
-
-def save_matched_data(p_id, platform, url, price, sold, rating, score):
-    """Lưu vào platform_links khớp 100% tên cột: rating_average, historical_sold"""
-    try:
-        db = connect_db()
-        cursor = db.cursor()
-        now = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
+        db = mysql.connector.connect(host="127.0.0.1", port=3307, user="root", password="", database="web_test")
+        cursor = db.cursor(dictionary=True)
         sql = """
-            INSERT INTO platform_links 
-            (product_id, platform_name, product_url, current_price, historical_sold, 
-             rating_average, match_score, status, last_scraped_at) 
-            VALUES (%s, %s, %s, %s, %s, %s, %s, 1, %s)
+            SELECT p.id, p.name 
+            FROM products p 
+            LEFT JOIN platform_links pl ON p.id = pl.product_id AND pl.platform_name = %s
+            WHERE pl.id IS NULL
         """
-        cursor.execute(sql, (p_id, platform, url, price, sold, rating, score, now))
+        cursor.execute(sql, (platform_name,))
+        results = cursor.fetchall()
+        db.close()
+        return results
+    except Exception as e:
+        print(f"❌ Lỗi truy vấn Database: {e}")
+        return []
+
+# ==========================================
+# 2. HÀM LƯU KẾT QUẢ VÀO DATABASE
+# ==========================================
+def save_matched_link(product_id, platform_name, matched_url, match_score):
+    try:
+        db = mysql.connector.connect(host="127.0.0.1", port=3307, user="root", password="", database="web_test")
+        cursor = db.cursor()
+        
+        sql = """
+            INSERT INTO platform_links (product_id, platform_name, product_url, current_price, status, match_score) 
+            VALUES (%s, %s, %s, 0, 0, %s)
+        """
+        cursor.execute(sql, (product_id, platform_name, matched_url, match_score))
         db.commit()
         db.close()
-        print(f"  ✅ Đã lưu link {platform} (Score: {score}%)")
-    except Exception as e: print(f"  ❌ Lỗi lưu DB: {e}")
+        print(f"  ✅ Đã GHI NHẬN {platform_name} thành công vào Database! (Score: {match_score}/100)")
+    except Exception as e:
+        print(f"  ❌ Lỗi lưu DB: {e}")
 
 # ==========================================
-# 3. CHIẾN DỊCH ĐI SĂN
-# ==========================================
-def start_hunting(driver, platform):
-    targets = get_target_products(platform)
-    if not targets:
-        print(f"🎉 Sàn {platform} đã đầy đủ dữ liệu.")
-        return
-
-    print(f"\n📋 Đang săn {len(targets)} sản phẩm cho {platform}...")
-
-    for prod in targets:
-        p_id, p_name = prod['id'], prod['name']
-        print("-" * 30)
-        print(f"🔍 Đang tìm: [{p_name}]")
-
-        query = urllib.parse.quote(p_name)
-        url = f"https://www.lazada.vn/catalog/?q={query}" if platform == "Lazada" else f"https://shopee.vn/search?keyword={query}"
-        
-        driver.get(url)
-        time.sleep(random.uniform(4, 6))
-
-        # --- BỘ PHANH TAY CHỐNG CAPTCHA ---
-        if "punish" in driver.current_url or "verify" in driver.current_url or "captcha" in driver.page_source.lower():
-            print(f"  🛑 CẢNH BÁO: {platform} chặn Captcha!")
-            input("  ⌨️ Hãy giải Captcha trên trình duyệt rồi nhấn ENTER tại đây -> ")
-            time.sleep(2)
-
-        try:
-            # Cuộn chuột để load dữ liệu ẩn
-            driver.execute_script("window.scrollBy(0, 400);")
-            time.sleep(2)
-
-            # Phân tích kết quả (Lấy Top 5)
-            wait = WebDriverWait(driver, 10)
-            pattern = ".html" if platform == "Lazada" else "-i."
-            items = driver.find_elements(By.XPATH, f"//a[contains(@href, '{pattern}')]")
-            
-            best_res = {'score': 0, 'url': '', 'name': '', 'price': 0, 'sold': 0, 'rating': 0}
-
-            for item in items[:6]:
-                try:
-                    raw_title = item.get_attribute("title") or item.text.strip().split('\n')[0]
-                    if not raw_title or len(raw_title) < 10: continue
-
-                    score = fuzz.token_set_ratio(p_name.lower(), raw_title.lower())
-                    if score > best_res['score']:
-                        # Bóc tách thêm Giá và Sold từ text của thẻ hoặc thẻ lân cận
-                        card_text = item.text
-                        price = clean_price(re.search(r'₫?[\d\.]+', card_text).group()) if "₫" in card_text or platform == "Shopee" else 0
-                        sold = parse_number(re.search(r'Đã bán [\d\.,kKtr]+', card_text).group()) if "Đã bán" in card_text else 0
-                        
-                        best_res.update({
-                            'score': score, 'url': item.get_attribute("href").split('?')[0],
-                            'name': raw_title, 'price': price, 'sold': sold
-                        })
-                except: continue
-
-            if best_res['score'] >= 75:
-                print(f"  🎯 KHỚP: {best_res['name'][:35]}... ({best_res['score']}%)")
-                # Xử lý URL Lazada nếu thiếu https
-                final_url = best_res['url']
-                if final_url.startswith("//"): final_url = "https:" + final_url
-                
-                save_matched_data(p_id, platform, final_url, best_res['price'], best_res['sold'], 0, best_res['score'])
-            else:
-                print(f"  ⚠️ Không tìm thấy sản phẩm đủ tin cậy (Max: {best_res['score']}%)")
-
-        except Exception as e: print(f"  ❌ Lỗi quét trang: {e}")
-        time.sleep(random.uniform(3, 5))
-
-# ==========================================
-# 4. KHỞI CHẠY
+# 3. CHƯƠNG TRÌNH CHÍNH (RADAR ĐI SĂN)
 # ==========================================
 if __name__ == "__main__":
+    # Khởi tạo trình duyệt dùng chung cho cả 2 nền tảng (Kèm cờ chống ngủ đông)
     options = uc.ChromeOptions()
-    base_dir = os.path.dirname(os.path.abspath(__file__))
-    options.user_data_dir = os.path.join(base_dir, "shopee_profile")
-
+    
+    # [ĐÃ FIX]: Lấy đường dẫn tuyệt đối của thư mục chứa file code này
+    profile_path = os.path.join(os.getcwd(), "master_profile")
+    options.add_argument(f"--user-data-dir={profile_path}")
+    
+    options.add_argument(f"--user-data-dir={profile_path}")
+    options.add_argument("--disable-background-timer-throttling")
+    options.add_argument("--disable-backgrounding-occluded-windows")
+    options.add_argument("--disable-renderer-backgrounding")
+    options.add_argument("--window-size=1920,1080")
+    
     driver = None
     try:
         driver = uc.Chrome(options=options, version_main=145)
-        print("[*] Đã kết nối Profile. Bắt đầu chiến dịch...")
         
-        # Săn lần lượt (Shopee trước, Lazada sau)
-        start_hunting(driver, "Shopee")
-        start_hunting(driver, "Lazada")
+        platforms_to_hunt = ['Shopee', 'Lazada']
+        
+        for platform in platforms_to_hunt:
+            print("\n" + "="*60)
+            print(f"🚀 BẮT ĐẦU CHIẾN DỊCH QUÉT TÌM LINK CHO SÀN: {platform.upper()}")
+            print("="*60)
+            
+            target_products = get_products_missing_platform(platform)
+            
+            if not target_products:
+                print(f"🎉 Tuyệt vời! Tất cả sản phẩm gốc đều đã có link {platform} theo dõi.")
+                continue
+                
+            print(f"📋 Tìm thấy {len(target_products)} sản phẩm gốc CẦN TÌM link {platform}.")
 
-    except Exception as e: print(f"❌ Lỗi hệ thống: {e}")
+            for product in target_products:
+                p_id = product['id']
+                p_name = product['name']
+                
+                print("-" * 50)
+                print(f"🔍 Đang tìm kiếm [{platform}] cho: [{p_name}]")
+                
+                encoded_name = p_name.replace(' ', '%20')
+                if platform == 'Shopee':
+                    search_url = f"https://shopee.vn/search?keyword={encoded_name}"
+                    xpath_selector = "//a[contains(@href, '-i.')]"
+                elif platform == 'Lazada':
+                    search_url = f"https://www.lazada.vn/catalog/?q={encoded_name}"
+                    xpath_selector = "//a[contains(@href, '.html')]"
+                
+                driver.get(search_url)
+                time.sleep(2.5) # Chờ URL định tuyến xong
+                
+                # --- KIỂM TRA LOGIN / CAPTCHA (CƠ CHẾ TỰ VỆ) ---
+                current_url = driver.current_url.lower()
+                if "login" in current_url or "captcha" in current_url or "baxia" in current_url or "verify" in current_url:
+                    if sys.stdin.isatty():
+                        input(f"  🛑 Yêu cầu Login/Captcha từ {platform}! Giải quyết xong nhấn ENTER -> ")
+                    else:
+                        print(f"  ❌ PHÁT HIỆN BỊ CHẶN CAPTCHA TRÊN {platform.upper()} KHI CHẠY TRÊN WEB!")
+                        print("  🛑 KÍCH HOẠT CHẾ ĐỘ TỰ VỆ: DỪNG BOT NGAY LẬP TỨC!")
+                        print("  👉 Vui lòng mở Terminal (CMD) chạy file multi_platform_matcher.py để giải quyết!")
+                        
+                        if driver: 
+                            try: driver.quit()
+                            except: pass
+                        sys.exit(1) # Thoát an toàn báo lỗi về Web
+
+                # Cuộn trang để hiển thị sản phẩm
+                time.sleep(random.uniform(2, 4)) 
+                driver.execute_script("window.scrollBy(0, 600);")
+                time.sleep(2)
+
+                try:
+                    product_cards = driver.find_elements(By.XPATH, xpath_selector)
+                    
+                    best_match_url = None
+                    best_match_score = 0
+                    best_match_name = ""
+
+                    for card in product_cards[:8]:
+                        text_lines = card.text.strip().split('\n')
+                        
+                        if len(text_lines) == 0 or text_lines[0] == '':
+                            continue
+                            
+                        extracted_name = max(text_lines, key=len) 
+                        extracted_url = card.get_attribute("href")
+                        
+                        if extracted_name and extracted_url:
+                            score = fuzz.token_set_ratio(p_name.lower(), extracted_name.lower())
+                            print(f"  Tiềm năng: {extracted_name[:40]}... -> Điểm: {score}")
+                            
+                            if score > best_match_score:
+                                best_match_score = score
+                                best_match_url = extracted_url
+                                best_match_name = extracted_name
+
+                    if best_match_score >= 80:
+                        print(f"  🎯 TÌM THẤY CHÂN ÁI: {best_match_name[:50]}...")
+                        clean_url = best_match_url.split('?')[0] if '?' in best_match_url else best_match_url
+                        save_matched_link(p_id, platform, clean_url, best_match_score)
+                    else:
+                        print(f"  ⚠️ Điểm cao nhất chỉ đạt {best_match_score}. KHÔNG TỰ TIN GÁN LINK.")
+
+                except Exception as e:
+                    print(f"  ❌ Lỗi khi đọc HTML tìm kiếm của {platform}: {e}")
+
+                time.sleep(random.uniform(3, 5))
+
+    except Exception as e:
+        print(f"❌ Lỗi hệ thống Bot Đi Săn: {e}")
     finally:
-        print("\n🛑 Hoàn tất. Đóng trình duyệt.")
-        if driver: driver.quit()
+        print("\n🛑 Hoàn thành chiến dịch. Đóng trình duyệt ảo.")
+        if driver:
+            try: driver.quit()
+            except: pass

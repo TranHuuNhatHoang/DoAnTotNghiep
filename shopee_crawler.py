@@ -81,7 +81,7 @@ if __name__ == "__main__":
 
     # --- CẤU HÌNH CHROME (ĐÃ BỔ SUNG CỜ LỆNH CHỐNG NGỦ ĐÔNG) ---
     options = uc.ChromeOptions()
-    profile_path = os.path.join(os.getcwd(), "shopee_profile")
+    profile_path = os.path.join(os.getcwd(), "master_profile")
     options.add_argument(f"--user-data-dir={profile_path}")
     
     # Ép Chrome chạy ngầm không bị giảm hiệu năng
@@ -115,17 +115,26 @@ if __name__ == "__main__":
                 time.sleep(1.5)
                 
                 # 1. Kiểm tra Login / Captcha
+                # 1. Kiểm tra Login / Captcha
                 current_url = driver.current_url.lower()
                 if "login" in current_url or "captcha" in current_url or "verify" in current_url:
                     if sys.stdin.isatty():
                         input("  🛑 Yêu cầu Login/Captcha! Giải quyết xong nhấn ENTER -> ")
                     else:
-                        print("  ❌ Bỏ qua do kẹt Captcha trên Web Admin.")
-                        try: db.ping(reconnect=True, attempts=3, delay=2)
-                        except: pass
-                        cursor.execute("UPDATE platform_links SET status = 3 WHERE id = %s", (link_id,))
-                        db.commit()
-                        continue
+                        print("  ❌ PHÁT HIỆN BỊ CHẶN CAPTCHA/LOGIN KHI CHẠY TRÊN WEB!")
+                        print("  🛑 KÍCH HOẠT CHẾ ĐỘ TỰ VỆ: DỪNG TOÀN BỘ BOT NGAY LẬP TỨC!")
+                        print("  👉 Hệ thống đã bảo toàn dữ liệu cũ. Vui lòng mở Terminal (CMD) chạy file này để giải Captcha bằng tay!")
+                        
+                        # Tuyệt đối không update Database để giữ nguyên trạng thái chờ cào cho link này.
+                        
+                        # Đóng tài nguyên an toàn và thoát khẩn cấp toàn bộ script
+                        if driver: 
+                            try: driver.quit()
+                            except: pass
+                        if 'db' in locals() and db.is_connected():
+                            cursor.close()
+                            db.close()
+                        sys.exit(1) # Thoát Python với mã lỗi 1 để báo hiệu cho Web PHP biết
 
                 # 2. Cuộn NHẸ trang
                 shallow_scroll(driver)

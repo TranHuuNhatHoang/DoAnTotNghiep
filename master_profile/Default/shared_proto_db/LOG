@@ -1,0 +1,6 @@
+2026/03/28-22:30:43.438 6e68 Reusing MANIFEST C:\xampp\htdocs\DoAnTotNghiep\master_profile\Default\shared_proto_db/MANIFEST-000001
+2026/03/28-22:30:43.438 6e68 Recovering log #3
+2026/03/28-22:30:43.440 6e68 Reusing old log C:\xampp\htdocs\DoAnTotNghiep\master_profile\Default\shared_proto_db/000003.log 
+2026/03/28-22:30:49.796 4c3c Level-0 table #5: started
+2026/03/28-22:30:49.800 4c3c Level-0 table #5: 115119 bytes OK
+2026/03/28-22:30:49.803 4c3c Delete type=0 #3
