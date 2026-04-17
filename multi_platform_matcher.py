@@ -71,7 +71,7 @@ if __name__ == "__main__":
     
     driver = None
     try:
-        driver = uc.Chrome(options=options, version_main=145)
+        driver = uc.Chrome(options=options, version_main=147)
         
         platforms_to_hunt = ['Shopee', 'Lazada']
         

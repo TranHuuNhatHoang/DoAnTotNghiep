@@ -97,5 +97,64 @@ class UserModel {
         }
         return false;
     }
+    // --- CÁC HÀM XỬ LÝ THÔNG BÁO WEB ---
+    
+    /**
+     * Lấy 10 thông báo mới nhất của người dùng kèm tên sản phẩm
+     */
+    public function getNotifications($userId) {
+        $stmt = $this->conn->prepare("
+            SELECT n.*, p.name as product_name 
+            FROM notifications n
+            JOIN products p ON n.product_id = p.id
+            WHERE n.user_id = ? 
+            ORDER BY n.created_at DESC 
+            LIMIT 10
+        ");
+        $stmt->bind_param("i", $userId);
+        $stmt->execute();
+        $result = $stmt->get_result();
+        $notifications = [];
+        while ($row = $result->fetch_assoc()) {
+            $notifications[] = $row;
+        }
+        return $notifications;
+    }
+
+    /**
+     * Đánh dấu một thông báo là đã đọc
+     */
+    public function markNotificationRead($notifId, $userId) {
+        $stmt = $this->conn->prepare("UPDATE notifications SET is_read = 1 WHERE id = ? AND user_id = ?");
+        $stmt->bind_param("ii", $notifId, $userId);
+        return $stmt->execute();
+    }
+
+    // --- CHỨC NĂNG DANH SÁCH THEO DÕI ---
+
+    /**
+     * Lấy danh sách các sản phẩm người dùng đang cài đặt cảnh báo giá
+     */
+    public function getUserAlerts($userId) {
+        $sql = "
+            SELECT 
+                pa.id as alert_id,
+                pa.target_price,
+                pa.created_at as alert_created_at,
+                p.id as product_id,
+                p.name as product_name,
+                p.description,
+                p.thumbnail_url, -- ĐÃ BỔ SUNG LẤY ẢNH SẢN PHẨM
+                (SELECT MIN(current_price) FROM platform_links WHERE product_id = p.id AND current_price > 0) as min_price
+            FROM price_alerts pa
+            JOIN products p ON pa.product_id = p.id
+            WHERE pa.user_id = ?
+            ORDER BY pa.created_at DESC
+        ";
+        $stmt = $this->conn->prepare($sql);
+        $stmt->bind_param("i", $userId);
+        $stmt->execute();
+        return $stmt->get_result()->fetch_all(MYSQLI_ASSOC);
+    }
 }
 ?>

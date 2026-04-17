@@ -7,19 +7,68 @@ class ProductModel {
     }
 
     // 1. Lấy danh sách cho Admin
+    // Cập nhật hàm này trong ProductModel.php để lấy thêm Tên Danh Mục
     public function getAllProductsWithStats() {
+        $sql = "SELECT p.*, 
+                c.name as category_name,
+                (SELECT COUNT(*) FROM platform_links WHERE product_id = p.id AND status = 1) as total_active_links,
+                (SELECT MAX(last_scraped_at) FROM platform_links WHERE product_id = p.id) as last_update
+                FROM products p 
+                LEFT JOIN categories c ON p.category_id = c.id
+                ORDER BY p.id DESC";
+        $result = $this->conn->query($sql);
+        return ($result) ? $result->fetch_all(MYSQLI_ASSOC) : [];
+    }
+    
+    // Bổ sung hàm lấy 6 sản phẩm Hot trực tiếp từ DB (Tối ưu hiệu suất)
+    public function getTrendingProducts() {
         $sql = "SELECT p.*, 
                 (SELECT COUNT(*) FROM platform_links WHERE product_id = p.id AND status = 1) as total_active_links,
                 (SELECT MAX(last_scraped_at) FROM platform_links WHERE product_id = p.id) as last_update
-                FROM products p ORDER BY p.id DESC";
+                FROM products p 
+                ORDER BY p.id DESC 
+                LIMIT 6";
+        $result = $this->conn->query($sql);
+        return ($result) ? $result->fetch_all(MYSQLI_ASSOC) : [];
+    }
+    /**
+     * Lấy danh sách sản phẩm mới nhất (Sắp xếp theo ID giảm dần)
+     */
+    public function getNewProducts() {
+        $sql = "SELECT p.*, 
+                c.name as category_name,
+                (SELECT COUNT(*) FROM platform_links WHERE product_id = p.id AND status = 1) as total_active_links,
+                (SELECT MIN(current_price) FROM platform_links WHERE product_id = p.id AND current_price > 0) as min_price
+                FROM products p 
+                LEFT JOIN categories c ON p.category_id = c.id
+                ORDER BY p.id DESC LIMIT 8";
         $result = $this->conn->query($sql);
         return ($result) ? $result->fetch_all(MYSQLI_ASSOC) : [];
     }
 
-    // 2. Tìm kiếm sản phẩm (User) - ĐÃ BỔ SUNG LAZADA
-    public function searchProducts($keyword) {
-        $searchTerm = "%" . $keyword . "%";
+    /**
+     * Lấy các sản phẩm có nhiều lượt liên kết nhất (Giả lập Top Deal)
+     */
+    public function getTopDeals() {
         $sql = "SELECT p.*, 
+                c.name as category_name,
+                (SELECT COUNT(*) FROM platform_links WHERE product_id = p.id AND status = 1) as total_active_links,
+                (SELECT MIN(current_price) FROM platform_links WHERE product_id = p.id AND current_price > 0) as min_price
+                FROM products p 
+                LEFT JOIN categories c ON p.category_id = c.id
+                HAVING total_active_links > 1
+                ORDER BY total_active_links DESC LIMIT 4";
+        $result = $this->conn->query($sql);
+        return ($result) ? $result->fetch_all(MYSQLI_ASSOC) : [];
+    }
+
+   // 2. Tìm kiếm sản phẩm (User) - NÂNG CẤP: Đã tích hợp Lazada và Lọc theo Danh mục
+    public function searchProducts($keyword, $categoryId = null) {
+        $searchTerm = "%" . $keyword . "%";
+        
+        // Cốt lõi cũ (Lấy giá 3 sàn) + Tính năng mới (LEFT JOIN Categories)
+        $sql = "SELECT p.*, 
+                c.name as category_name,
                 (SELECT current_price FROM platform_links WHERE product_id = p.id AND platform_name = 'Tiki' LIMIT 1) as tiki_price,
                 (SELECT current_price FROM platform_links WHERE product_id = p.id AND platform_name = 'Shopee' LIMIT 1) as shopee_price,
                 (SELECT current_price FROM platform_links WHERE product_id = p.id AND platform_name = 'Lazada' LIMIT 1) as lazada_price,
@@ -27,10 +76,25 @@ class ProductModel {
                 (SELECT product_url FROM platform_links WHERE product_id = p.id AND platform_name = 'Shopee' LIMIT 1) as shopee_url,
                 (SELECT product_url FROM platform_links WHERE product_id = p.id AND platform_name = 'Lazada' LIMIT 1) as lazada_url
                 FROM products p 
+                LEFT JOIN categories c ON p.category_id = c.id
                 WHERE p.name LIKE ?";
+
+        $params = [$searchTerm];
+        $types = "s";
+
+        // Nếu người dùng có chọn danh mục từ Dropdown, ta nối thêm điều kiện WHERE
+        if (!empty($categoryId)) {
+            $sql .= " AND p.category_id = ?";
+            $params[] = $categoryId;
+            $types .= "i"; // 'i' đại diện cho kiểu Integer
+        }
+
         $stmt = $this->conn->prepare($sql);
-        $stmt->bind_param("s", $searchTerm);
+        
+        // Truyền mảng tham số động vào bind_param (Dùng toán tử giải nén ...)
+        $stmt->bind_param($types, ...$params);
         $stmt->execute();
+        
         return $stmt->get_result()->fetch_all(MYSQLI_ASSOC);
     }
 
@@ -64,14 +128,31 @@ class ProductModel {
     }
 
     // 6. Thêm sản phẩm mới vào bảng products
-    public function createProduct($name, $description) {
-        $stmt = $this->conn->prepare("INSERT INTO products (name, description) VALUES (?, ?)");
-        $stmt->bind_param("ss", $name, $description);
+    // 6. Thêm sản phẩm mới vào bảng products (Đã bổ sung category_id)
+    public function createProduct($name, $description, $categoryId) {
+        $stmt = $this->conn->prepare("INSERT INTO products (name, description, category_id) VALUES (?, ?, ?)");
+        $stmt->bind_param("ssi", $name, $description, $categoryId);
         
         if ($stmt->execute()) {
             return $this->conn->insert_id; 
         }
         return false;
+    }
+
+    // --- BỔ SUNG CÁC HÀM QUẢN TRỊ SẢN PHẨM ---
+
+    // Cập nhật thông tin sản phẩm
+    public function updateProduct($id, $name, $description, $categoryId) {
+        $stmt = $this->conn->prepare("UPDATE products SET name = ?, description = ?, category_id = ? WHERE id = ?");
+        $stmt->bind_param("ssii", $name, $description, $categoryId, $id);
+        return $stmt->execute();
+    }
+
+    // Xóa sản phẩm
+    public function deleteProduct($id) {
+        $stmt = $this->conn->prepare("DELETE FROM products WHERE id = ?");
+        $stmt->bind_param("i", $id);
+        return $stmt->execute();
     }
 
     // 7. Thêm một liên kết nền tảng
@@ -144,6 +225,102 @@ class ProductModel {
         $stmt = $this->conn->prepare("DELETE FROM price_alerts WHERE user_id = ? AND product_id = ?");
         $stmt->bind_param("ii", $userId, $productId);
         return $stmt->execute();
+    }
+    // --- BỔ SUNG CÁC HÀM QUẢN LÝ LINK SÀN ---
+
+    // Cập nhật đường link hoặc trạng thái Bật/Tắt (is_active)
+    public function updatePlatformLink($linkId, $url, $isActive) {
+        $stmt = $this->conn->prepare("UPDATE platform_links SET product_url = ?, is_active = ? WHERE id = ?");
+        $stmt->bind_param("sii", $url, $isActive, $linkId);
+        return $stmt->execute();
+    }
+
+    // Xóa vĩnh viễn một link
+    public function deletePlatformLink($linkId) {
+        $stmt = $this->conn->prepare("DELETE FROM platform_links WHERE id = ?");
+        $stmt->bind_param("i", $linkId);
+        return $stmt->execute();
+    }
+    /**
+     * 1. Lấy gợi ý nhanh cho Autocomplete (AJAX)
+     */
+    public function getSuggestions($keyword) {
+        $searchTerm = "%" . $keyword . "%";
+        // Lấy 5 sản phẩm và 3 danh mục khớp với từ khóa
+        $sql = "SELECT id, name, 'product' as type FROM products WHERE name LIKE ? LIMIT 5
+                UNION
+                SELECT id, name, 'category' as type FROM categories WHERE name LIKE ? LIMIT 3";
+        $stmt = $this->conn->prepare($sql);
+        $stmt->bind_param("ss", $searchTerm, $searchTerm);
+        $stmt->execute();
+        return $stmt->get_result()->fetch_all(MYSQLI_ASSOC);
+    }
+
+    /**
+     * 2. Tìm kiếm nâng cao (Lọc theo Sàn, Giá, Sắp xếp)
+     */
+    public function searchProductsAdvanced($keyword, $catId, $platform, $minPrice, $maxPrice, $sort) {
+        $searchTerm = "%" . $keyword . "%";
+        
+        $sql = "SELECT p.*, c.name as category_name,
+                (SELECT current_price FROM platform_links WHERE product_id = p.id AND platform_name = 'Tiki' LIMIT 1) as tiki_price,
+                (SELECT current_price FROM platform_links WHERE product_id = p.id AND platform_name = 'Shopee' LIMIT 1) as shopee_price,
+                (SELECT current_price FROM platform_links WHERE product_id = p.id AND platform_name = 'Lazada' LIMIT 1) as lazada_price,
+                (SELECT MIN(current_price) FROM platform_links WHERE product_id = p.id AND current_price > 0) as min_price
+                FROM products p 
+                LEFT JOIN categories c ON p.category_id = c.id
+                WHERE p.name LIKE ?";
+
+        $params = [$searchTerm];
+        $types = "s";
+
+        // Lọc theo Danh mục
+        if ($catId) { $sql .= " AND p.category_id = ?"; $params[] = $catId; $types .= "i"; }
+        
+        // Lọc theo Sàn (Chỉ lấy SP có link trên sàn đó)
+        if ($platform) {
+            $sql .= " AND EXISTS (SELECT 1 FROM platform_links WHERE product_id = p.id AND platform_name = ? AND current_price > 0)";
+            $params[] = $platform; $types .= "s";
+        }
+
+        // Lọc theo Khoảng giá (Dựa trên giá rẻ nhất hiện có)
+        if ($minPrice) { $sql .= " AND (SELECT MIN(current_price) FROM platform_links WHERE product_id = p.id) >= ?"; $params[] = $minPrice; $types .= "i"; }
+        if ($maxPrice) { $sql .= " AND (SELECT MIN(current_price) FROM platform_links WHERE product_id = p.id) <= ?"; $params[] = $maxPrice; $types .= "i"; }
+
+        // Sắp xếp
+        switch($sort) {
+            case 'price_asc': $sql .= " ORDER BY min_price ASC"; break;
+            case 'price_desc': $sql .= " ORDER BY min_price DESC"; break;
+            default: $sql .= " ORDER BY p.id DESC";
+        }
+
+        $stmt = $this->conn->prepare($sql);
+        $stmt->bind_param($types, ...$params);
+        $stmt->execute();
+        return $stmt->get_result()->fetch_all(MYSQLI_ASSOC);
+    }
+    // BỔ SUNG 1: Lấy các sản phẩm cùng danh mục (Related Products)
+    public function getRelatedProducts($categoryId, $excludeProductId) {
+        if (!$categoryId) return [];
+        $sql = "SELECT p.*, 
+                (SELECT MIN(current_price) FROM platform_links WHERE product_id = p.id AND current_price > 0) as min_price
+                FROM products p 
+                WHERE p.category_id = ? AND p.id != ? 
+                ORDER BY p.id DESC LIMIT 4";
+        $stmt = $this->conn->prepare($sql);
+        $stmt->bind_param("ii", $categoryId, $excludeProductId);
+        $stmt->execute();
+        return $stmt->get_result()->fetch_all(MYSQLI_ASSOC);
+    }
+
+    // BỔ SUNG 2: Tính toán thống kê giá (Insight)
+    public function getPriceStats($productId) {
+        $sql = "SELECT MAX(price) as max_price, MIN(price) as min_price, AVG(price) as avg_price 
+                FROM price_history WHERE link_id IN (SELECT id FROM platform_links WHERE product_id = ?)";
+        $stmt = $this->conn->prepare($sql);
+        $stmt->bind_param("i", $productId);
+        $stmt->execute();
+        return $stmt->get_result()->fetch_assoc();
     }
 }
 ?>

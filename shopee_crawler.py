@@ -94,7 +94,7 @@ if __name__ == "__main__":
     
     driver = None
     try:
-        driver = uc.Chrome(options=options, version_main=145) 
+        driver = uc.Chrome(options=options, version_main=147) 
         
         # BƯỚC MỒI: LẤY TRUST COOKIE TỪ TRANG CHỦ
         print("🌐 Đang truy cập trang chủ Shopee để lấy Trust Cookie...")

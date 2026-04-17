@@ -1,14 +1,12 @@
 <?php
-// Tắt giới hạn thời gian thực thi (vì có thể phải gửi hàng trăm email)
+// Tắt giới hạn thời gian thực thi
 set_time_limit(0);
 
 // Nạp các thư viện cần thiết
 require_once __DIR__ . '/services/MailService.php';
 
-// KẾT NỐI DATABASE TRỰC TIẾP
-// 🔴 Lưu ý: Thay đổi port 3307 thành 3306 nếu XAMPP của bạn dùng port mặc định
+// KẾT NỐI DATABASE
 $conn = new mysqli("127.0.0.1", "root", "", "web_test", 3307); 
-
 if ($conn->connect_error) {
     die("Lỗi kết nối CSDL: " . $conn->connect_error);
 }
@@ -18,11 +16,12 @@ echo "=================================================\n";
 echo "BẮT ĐẦU QUÉT CẢNH BÁO GIÁ (" . date('Y-m-d H:i:s') . ")\n";
 echo "=================================================\n\n";
 
-// Câu lệnh SQL "Thần thánh": Ghép 4 bảng lại với nhau để tìm ra những ai được chốt đơn
 $sql = "
     SELECT 
         pa.id as alert_id,
+        u.id as user_id,
         u.email,
+        p.id as product_id,
         p.name as product_name,
         pa.target_price,
         pl.current_price,
@@ -41,9 +40,19 @@ $sql = "
 $result = $conn->query($sql);
 
 if ($result->num_rows > 0) {
-    echo "Phát hiện " . $result->num_rows . " lượt sản phẩm đạt mức kỳ vọng!\n\n";
+    echo "Phát hiện " . $result->num_rows . " lượt khớp giá (bao gồm các sàn bị trùng)...\n\n";
+
+    // 🔴 THÊM MỚI: Mảng ghi sổ các cảnh báo đã xử lý
+    $processed_alerts = [];
 
     while ($row = $result->fetch_assoc()) {
+        
+        // 🔴 THÊM MỚI: Kiểm tra xem cảnh báo này đã được gửi (cho sàn rẻ hơn) trước đó chưa?
+        if (in_array($row['alert_id'], $processed_alerts)) {
+            // Nếu đã gửi rồi, bỏ qua dòng này (Bỏ qua các sàn đắt hơn)
+            continue;
+        }
+
         echo "-> Đang gửi thông báo cho: " . $row['email'] . " (Sản phẩm: " . $row['product_name'] . ")...\n";
         
         // Gọi hàm gửi Email
@@ -57,11 +66,20 @@ if ($result->num_rows > 0) {
         );
 
         if ($isSent) {
-            // Cập nhật is_notified = 1 để ngày mai không spam họ nữa
             $updateStmt = $conn->prepare("UPDATE price_alerts SET is_notified = 1 WHERE id = ?");
             $updateStmt->bind_param("i", $row['alert_id']);
             $updateStmt->execute();
-            echo "   [THÀNH CÔNG] Đã gửi mail và cập nhật trạng thái.\n";
+
+            $msg = "🎉 Tin vui! Sản phẩm <strong>" . $row['product_name'] . "</strong> đã giảm xuống còn <strong>" . number_format($row['current_price']) . "đ</strong> (Rẻ nhất tại " . $row['platform_name'] . "). Mua ngay!";
+            $notifStmt = $conn->prepare("INSERT INTO notifications (user_id, product_id, message) VALUES (?, ?, ?)");
+            $notifStmt->bind_param("iis", $row['user_id'], $row['product_id'], $msg); 
+            $notifStmt->execute();
+
+            echo "   [THÀNH CÔNG] Đã gửi mail (Sàn: ".$row['platform_name'].") và tạo thông báo Web.\n";
+            
+            // 🔴 THÊM MỚI: Ghi sổ lại ID cảnh báo này để các vòng lặp sau không gửi nữa
+            $processed_alerts[] = $row['alert_id'];
+            
         } else {
             echo "   [THẤT BẠI] Không thể gửi email.\n";
         }

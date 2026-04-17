@@ -1,5 +1,6 @@
-2026/03/28-22:30:43.338 61a8 Reusing MANIFEST C:\xampp\htdocs\DoAnTotNghiep\master_profile\Default\Local Storage\leveldb/MANIFEST-000001
-2026/03/28-22:30:43.345 61a8 Recovering log #77
-2026/03/28-22:30:43.345 61a8 Level-0 table #80: started
-2026/03/28-22:30:43.350 61a8 Level-0 table #80: 34031 bytes OK
-2026/03/28-22:30:43.356 61a8 Delete type=0 #77
+2026/04/16-18:52:15.816 49c Reusing MANIFEST C:\xampp\htdocs\DoAnTotNghiep\master_profile\Default\Local Storage\leveldb/MANIFEST-000001
+2026/04/16-18:52:15.820 49c Recovering log #141
+2026/04/16-18:52:15.821 49c Reusing old log C:\xampp\htdocs\DoAnTotNghiep\master_profile\Default\Local Storage\leveldb/000141.log 
+2026/04/16-18:53:26.163 4cbc Level-0 table #145: started
+2026/04/16-18:53:26.168 4cbc Level-0 table #145: 162711 bytes OK
+2026/04/16-18:53:26.170 4cbc Delete type=0 #141

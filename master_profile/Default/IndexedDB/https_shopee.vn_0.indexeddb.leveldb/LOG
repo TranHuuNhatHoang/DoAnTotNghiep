@@ -1,3 +1,5 @@
-2026/03/28-22:29:18.851 4a5c Reusing MANIFEST C:\xampp\htdocs\DoAnTotNghiep\master_profile\Default\IndexedDB\https_shopee.vn_0.indexeddb.leveldb/MANIFEST-000001
-2026/03/28-22:29:18.851 4a5c Recovering log #44
-2026/03/28-22:29:18.854 4a5c Reusing old log C:\xampp\htdocs\DoAnTotNghiep\master_profile\Default\IndexedDB\https_shopee.vn_0.indexeddb.leveldb/000044.log 
+2026/04/16-18:22:18.533 338c Reusing MANIFEST C:\xampp\htdocs\DoAnTotNghiep\master_profile\Default\IndexedDB\https_shopee.vn_0.indexeddb.leveldb/MANIFEST-000001
+2026/04/16-18:22:18.534 338c Recovering log #77
+2026/04/16-18:22:18.535 338c Reusing old log C:\xampp\htdocs\DoAnTotNghiep\master_profile\Default\IndexedDB\https_shopee.vn_0.indexeddb.leveldb/000077.log 
+2026/04/16-18:22:18.536 338c Delete type=2 #75
+2026/04/16-18:22:18.536 338c Delete type=2 #78

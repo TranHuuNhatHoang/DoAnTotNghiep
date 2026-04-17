@@ -6,18 +6,22 @@ $a = isset($_GET['action']) ? $_GET['action'] : 'index';
 <div class="sidebar shadow">
     <div class="sidebar-header">
         <h4 class="fw-bold mb-0 text-warning"><i class="fas fa-robot me-2"></i>ADMIN PANEL</h4>
-        <small class="text-muted">Hệ Thống So Sánh Giá</small>
+        <small class="text-muted text-uppercase" style="font-size: 0.7rem;">Hệ Thống So Sánh Giá</small>
     </div>
-    <div class="d-flex flex-column mt-4">
-        
+    <div class="d-flex flex-column mt-3">
         <a href="index.php?role=admin&controller=dashboard&action=index" 
            class="nav-link <?php echo ($c == 'dashboard' && $a == 'index') ? 'active' : ''; ?>">
-            <i class="fas fa-box me-2"></i> Quản lý Sản phẩm
+            <i class="fas fa-home me-2"></i> Tổng quan
         </a>
         
-        <a href="index.php?role=admin&controller=dashboard&action=add" 
-           class="nav-link <?php echo ($c == 'dashboard' && $a == 'add') ? 'active' : ''; ?>">
-            <i class="fas fa-plus-circle me-2"></i> Thêm Sản phẩm
+        <a href="index.php?role=admin&controller=adminCategory&action=index" 
+           class="nav-link <?php echo ($c == 'adminCategory') ? 'active' : ''; ?>">
+            <i class="fas fa-list me-2"></i> Quản lý Danh mục
+        </a>
+
+        <a href="index.php?role=admin&controller=adminProduct&action=index" 
+           class="nav-link <?php echo ($c == 'adminProduct') ? 'active' : ''; ?>">
+            <i class="fas fa-box me-2"></i> Quản lý Sản phẩm
         </a>
         
         <a href="index.php?role=admin&controller=bot&action=index" 
