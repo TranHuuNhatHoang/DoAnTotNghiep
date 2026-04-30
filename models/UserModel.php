@@ -145,7 +145,7 @@ class UserModel {
                 p.name as product_name,
                 p.description,
                 p.thumbnail_url, -- ĐÃ BỔ SUNG LẤY ẢNH SẢN PHẨM
-                (SELECT MIN(current_price) FROM platform_links WHERE product_id = p.id AND current_price > 0) as min_price
+                (SELECT MIN(current_price) FROM platform_links WHERE product_id = p.id AND is_active = 1 AND current_price > 0) as min_price
             FROM price_alerts pa
             JOIN products p ON pa.product_id = p.id
             WHERE pa.user_id = ?

@@ -6,6 +6,7 @@ import time
 import os
 from thefuzz import fuzz # Thư viện so khớp chuỗi
 import sys
+from app_config import get_chrome_version_main, get_db_config, get_profile_path
 sys.stdout.reconfigure(encoding='utf-8')
 
 print("🤖 KHỞI ĐỘNG BOT TỰ ĐỘNG GOM NHÓM (FUZZY MATCHER)...")
@@ -16,7 +17,7 @@ print("🤖 KHỞI ĐỘNG BOT TỰ ĐỘNG GOM NHÓM (FUZZY MATCHER)...")
 def get_products_without_shopee():
     """Lấy các sản phẩm gốc (Tiki) mà chưa được map với link Shopee nào"""
     try:
-        db = mysql.connector.connect(host="127.0.0.1", port=3307, user="root", password="", database="web_test")
+        db = mysql.connector.connect(**get_db_config())
         cursor = db.cursor(dictionary=True)
         # Câu lệnh SQL logic cực hay: Lấy product mà không tồn tại trong platform_links với platform = 'Shopee'
         sql = """
@@ -38,13 +39,13 @@ def get_products_without_shopee():
 # ==========================================
 def save_matched_link(product_id, shopee_url, match_score):
     try:
-        db = mysql.connector.connect(host="127.0.0.1", port=3307, user="root", password="", database="web_test")
+        db = mysql.connector.connect(**get_db_config())
         cursor = db.cursor()
         
         # Thêm mới (INSERT) link Shopee này, gán chung product_id với sản phẩm gốc
         sql = """
-            INSERT INTO platform_links (product_id, platform_name, product_url, current_price, status, match_score) 
-            VALUES (%s, 'Shopee', %s, 0, 0, %s)
+            INSERT INTO platform_links (product_id, platform_name, product_url, current_price, status, is_active, match_score) 
+            VALUES (%s, 'Shopee', %s, 0, 0, 1, %s)
         """
         # status = 0 (Chờ cào giá), current_price = 0 (Sẽ được Bot Shopee 2.0 quét sau)
         cursor.execute(sql, (product_id, shopee_url, match_score))
@@ -68,12 +69,12 @@ if __name__ == "__main__":
 
     # Mở trình duyệt tàng hình với Profile
     options = uc.ChromeOptions()
-    profile_path = os.path.join(os.getcwd(), "shopee_profile")
+    profile_path = get_profile_path("shopee_profile")
     options.add_argument(f"--user-data-dir={profile_path}")
     
     driver = None
     try:
-        driver = uc.Chrome(options=options, version_main=145)
+        driver = uc.Chrome(options=options, version_main=get_chrome_version_main(145))
         
         for product in target_products:
             p_id = product['id']

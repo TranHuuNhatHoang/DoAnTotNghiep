@@ -1,7 +1,0 @@
-2026/04/16-18:22:08.290 6098 Reusing MANIFEST C:\xampp\htdocs\DoAnTotNghiep\master_profile\Default\IndexedDB\https_shopee.vn_0.indexeddb.leveldb/MANIFEST-000001
-2026/04/16-18:22:08.290 6098 Recovering log #77
-2026/04/16-18:22:08.291 6098 Reusing old log C:\xampp\htdocs\DoAnTotNghiep\master_profile\Default\IndexedDB\https_shopee.vn_0.indexeddb.leveldb/000077.log 
-2026/04/16-18:22:08.713 338c Compacting 1@1 + 1@2 files
-2026/04/16-18:22:08.724 338c Generated table #80@1: 1110 keys, 239651 bytes
-2026/04/16-18:22:08.724 338c Compacted 1@1 + 1@2 files => 239651 bytes
-2026/04/16-18:22:08.725 338c compacted to: files[ 0 0 1 0 0 0 0 ]

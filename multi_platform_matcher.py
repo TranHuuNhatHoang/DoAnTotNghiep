@@ -6,6 +6,7 @@ import os
 import random
 from thefuzz import fuzz # Thư viện so khớp chuỗi
 import sys
+from app_config import get_chrome_version_main, get_db_config, get_profile_path
 
 sys.stdout.reconfigure(encoding='utf-8')
 
@@ -17,7 +18,7 @@ print("🤖 KHỞI ĐỘNG BOT TỰ ĐỘNG GOM NHÓM (MULTI-PLATFORM FUZZY MATC
 def get_products_missing_platform(platform_name):
     """Lấy các sản phẩm gốc (Tiki) mà chưa được map với link của nền tảng chỉ định"""
     try:
-        db = mysql.connector.connect(host="127.0.0.1", port=3307, user="root", password="", database="web_test")
+        db = mysql.connector.connect(**get_db_config())
         cursor = db.cursor(dictionary=True)
         sql = """
             SELECT p.id, p.name 
@@ -38,12 +39,12 @@ def get_products_missing_platform(platform_name):
 # ==========================================
 def save_matched_link(product_id, platform_name, matched_url, match_score):
     try:
-        db = mysql.connector.connect(host="127.0.0.1", port=3307, user="root", password="", database="web_test")
+        db = mysql.connector.connect(**get_db_config())
         cursor = db.cursor()
         
         sql = """
-            INSERT INTO platform_links (product_id, platform_name, product_url, current_price, status, match_score) 
-            VALUES (%s, %s, %s, 0, 0, %s)
+            INSERT INTO platform_links (product_id, platform_name, product_url, current_price, status, is_active, match_score) 
+            VALUES (%s, %s, %s, 0, 0, 1, %s)
         """
         cursor.execute(sql, (product_id, platform_name, matched_url, match_score))
         db.commit()
@@ -60,9 +61,7 @@ if __name__ == "__main__":
     options = uc.ChromeOptions()
     
     # [ĐÃ FIX]: Lấy đường dẫn tuyệt đối của thư mục chứa file code này
-    profile_path = os.path.join(os.getcwd(), "master_profile")
-    options.add_argument(f"--user-data-dir={profile_path}")
-    
+    profile_path = get_profile_path("master_profile")
     options.add_argument(f"--user-data-dir={profile_path}")
     options.add_argument("--disable-background-timer-throttling")
     options.add_argument("--disable-backgrounding-occluded-windows")
@@ -71,7 +70,7 @@ if __name__ == "__main__":
     
     driver = None
     try:
-        driver = uc.Chrome(options=options, version_main=147)
+        driver = uc.Chrome(options=options, version_main=get_chrome_version_main(147))
         
         platforms_to_hunt = ['Shopee', 'Lazada']
         

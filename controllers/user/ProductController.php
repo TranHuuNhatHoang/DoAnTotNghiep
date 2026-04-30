@@ -22,6 +22,25 @@ class ProductController {
         $new_products = $this->productModel->getNewProducts();
         $top_deals = $this->productModel->getTopDeals();
         
+        // --- BỔ SUNG LOGIC LẤY THÔNG BÁO CHO QUẢ CHUÔNG ---
+        $notifications = [];
+        $unread_count = 0;
+        
+        if (isset($_SESSION['user_id'])) {
+            require_once 'models/UserModel.php';
+            $userModel = new UserModel($this->db);
+            $notifications = $userModel->getNotifications($_SESSION['user_id']);
+            
+            if ($notifications) {
+                foreach($notifications as $n) { 
+                    if($n['is_read'] == 0) {
+                        $unread_count++; 
+                    }
+                }
+            }
+        }
+        // --------------------------------------------------
+
         require_once 'views/user/home.php';
     }
 
@@ -30,6 +49,9 @@ class ProductController {
         $keyword = isset($_GET['keyword']) ? trim($_GET['keyword']) : '';
         $catId = isset($_GET['category_id']) ? intval($_GET['category_id']) : null;
         $platform = isset($_GET['platform_filter']) ? $_GET['platform_filter'] : null;
+        if (!in_array($platform, ['Tiki', 'Shopee', 'Lazada'], true)) {
+            $platform = null;
+        }
         $minPrice = isset($_GET['min_price']) ? intval($_GET['min_price']) : null;
         $maxPrice = isset($_GET['max_price']) ? intval($_GET['max_price']) : null;
         $sort = isset($_GET['sort_by']) ? $_GET['sort_by'] : 'newest';
@@ -167,11 +189,11 @@ class ProductController {
     }
     // API trả về gợi ý tìm kiếm (JSON)
     public function suggest() {
+        header('Content-Type: application/json; charset=utf-8');
         $keyword = isset($_GET['keyword']) ? trim($_GET['keyword']) : '';
         if (mb_strlen($keyword) < 2) { echo json_encode([]); exit(); }
 
         $suggestions = $this->productModel->getSuggestions($keyword);
-        header('Content-Type: application/json');
         echo json_encode($suggestions);
         exit();
     }

@@ -25,6 +25,8 @@
 
         <?php if(isset($_GET['msg']) && $_GET['msg'] == 'resent'): ?>
             <div class="alert alert-success py-2 small fw-bold"><i class="fas fa-paper-plane me-1"></i> Đã gửi lại mã OTP mới! Vui lòng kiểm tra hộp thư.</div>
+        <?php elseif(isset($_GET['error']) && $_GET['error'] == 'mail_failed'): ?>
+            <div class="alert alert-danger py-2 small fw-bold"><i class="fas fa-times-circle me-1"></i> Khong the gui email OTP. Hay kiem tra cau hinh SMTP trong file .env.</div>
         <?php elseif(isset($_GET['error']) && $_GET['error'] == 'invalid_otp'): ?>
             <div class="alert alert-danger py-2 small fw-bold"><i class="fas fa-exclamation-circle me-1"></i> Mã OTP sai hoặc đã hết hạn!</div>
         <?php elseif(isset($_GET['error']) && $_GET['error'] == 'resend_failed'): ?>

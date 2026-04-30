@@ -3,14 +3,19 @@ class AdminCategoryController {
     private $db;
     private $categoryModel; // SỬA ĐỔI: Dùng CategoryModel
 
-    public function __construct() {
+    public function __construct($db = null) {
         if (session_status() === PHP_SESSION_NONE) { session_start(); }
         if (!isset($_SESSION['user_role']) || $_SESSION['user_role'] !== 'admin') {
             header("Location: index.php");
             exit();
         }
 
-        $this->db = new mysqli("127.0.0.1", "root", "", "web_test", 3307);
+        $this->db = $db;
+        if (!$this->db) {
+            require_once 'config/database.php';
+            $database = new Database();
+            $this->db = $database->getConnection();
+        }
         
         // SỬA ĐỔI: Nạp file CategoryModel
         require_once 'models/CategoryModel.php';

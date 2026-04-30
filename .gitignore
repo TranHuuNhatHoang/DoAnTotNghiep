@@ -1,0 +1,16 @@
+.env
+.env.*
+!.env.example
+
+master_profile/
+shopee_profile/
+__pycache__/
+*.py[cod]
+*.pyo
+
+*.log
+*.tmp
+storage/sessions/*
+!storage/sessions/.gitkeep
+.vscode/
+.idea/

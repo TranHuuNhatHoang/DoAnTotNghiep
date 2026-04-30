@@ -1,0 +1,6 @@
+mysql-connector-python
+requests
+selenium
+undetected-chromedriver
+thefuzz
+python-Levenshtein

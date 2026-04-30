@@ -9,6 +9,7 @@ import random
 import re
 from datetime import datetime
 import sys
+from app_config import get_chrome_version_main, get_db_config, get_profile_path
 
 sys.stdout.reconfigure(encoding='utf-8')
 
@@ -61,7 +62,7 @@ def shallow_scroll(driver):
 # ==========================================
 if __name__ == "__main__":
     try:
-        db = mysql.connector.connect(host="127.0.0.1", port=3307, user="root", password="", database="web_test")
+        db = mysql.connector.connect(**get_db_config())
         cursor = db.cursor(dictionary=True)
         
         sql_batch = f"""
@@ -83,8 +84,7 @@ if __name__ == "__main__":
     options = uc.ChromeOptions()
     
     # [CHUẨN HÓA]: Dùng chung master_profile với các bot khác
-    script_dir = os.path.dirname(os.path.abspath(__file__))
-    profile_path = os.path.join(script_dir, "master_profile")
+    profile_path = get_profile_path("master_profile")
     options.add_argument(f"--user-data-dir={profile_path}")
     
     # Ép Chrome chạy ngầm 100% công suất
@@ -97,7 +97,7 @@ if __name__ == "__main__":
     
     driver = None
     try:
-        driver = uc.Chrome(options=options, version_main=147) 
+        driver = uc.Chrome(options=options, version_main=get_chrome_version_main(147)) 
         
         # BƯỚC MỒI LẤY COOKIE LAZADA TỪ TRANG CHỦ
         print("🌐 Đang truy cập trang chủ Lazada để lấy Trust Cookie...")

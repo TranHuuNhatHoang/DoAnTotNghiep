@@ -9,6 +9,7 @@ import random
 import re
 from datetime import datetime
 import sys
+from app_config import get_chrome_version_main, get_db_config, get_profile_path
 
 sys.stdout.reconfigure(encoding='utf-8')
 
@@ -62,8 +63,7 @@ def shallow_scroll(driver):
 # ==========================================
 def create_stable_driver():
     options = uc.ChromeOptions()
-    script_dir = os.path.dirname(os.path.abspath(__file__))
-    profile_path = os.path.join(script_dir, "master_profile")
+    profile_path = get_profile_path("master_profile")
     options.add_argument(f"--user-data-dir={profile_path}")
     
     options.add_argument("--disable-background-timer-throttling")
@@ -80,7 +80,7 @@ def create_stable_driver():
 
     if HEADLESS_MODE: options.add_argument("--headless=new")
     
-    driver = uc.Chrome(options=options, version_main=147) 
+    driver = uc.Chrome(options=options, version_main=get_chrome_version_main(147)) 
     driver.set_page_load_timeout(45) # Đủ thời gian cho Lazada load script
     return driver
 
@@ -89,7 +89,7 @@ def create_stable_driver():
 # ==========================================
 if __name__ == "__main__":
     try:
-        db = mysql.connector.connect(host="127.0.0.1", port=3307, user="root", password="", database="web_test")
+        db = mysql.connector.connect(**get_db_config())
         cursor = db.cursor(dictionary=True)
         
         sql_batch = f"""

@@ -3,7 +3,7 @@ class AdminPlatformController {
     private $db;
     private $productModel;
 
-    public function __construct() {
+    public function __construct($db = null) {
         if (session_status() === PHP_SESSION_NONE) { session_start(); }
 
         if (!isset($_SESSION['user_role']) || $_SESSION['user_role'] !== 'admin') {
@@ -11,7 +11,12 @@ class AdminPlatformController {
             exit();
         }
 
-        $this->db = new mysqli("127.0.0.1", "root", "", "web_test", 3307);
+        $this->db = $db;
+        if (!$this->db) {
+            require_once 'config/database.php';
+            $database = new Database();
+            $this->db = $database->getConnection();
+        }
         require_once 'models/ProductModel.php';
         $this->productModel = new ProductModel($this->db);
     }

@@ -1,56 +1,157 @@
 <?php
 /**
  * DO AN TOT NGHIEP - ENTRY POINT (ROUTER)
- * Cấu trúc URL: index.php?role=admin&controller=dashboard&action=index
+ * URL: index.php?role=admin&controller=dashboard&action=index
  */
 
-// 1. Bật báo cáo lỗi để phục vụ việc lập trình (Sẽ tắt khi hoàn thành đồ án)
-ini_set('display_errors', 1);
-error_reporting(E_ALL);
-
-// 2. Nạp file cấu hình hệ thống
 require_once 'config/database.php';
 
-// 3. Phân tích các tham số điều hướng từ URL
-// Mặc định role là user, controller là Product, action là index (Trang chủ người dùng)
-$role           = isset($_GET['role']) ? strtolower($_GET['role']) : 'user';
-$controllerName = isset($_GET['controller']) ? ucfirst(strtolower($_GET['controller'])) . 'Controller' : 'ProductController';
-$actionName     = isset($_GET['action']) ? $_GET['action'] : 'index';
+$debug = AppEnv::bool('APP_DEBUG', false);
+ini_set('display_errors', $debug ? '1' : '0');
+error_reporting(E_ALL);
 
-// 4. Xác định đường dẫn đến file Controller dựa trên Role (admin hoặc user)
-$controllerPath = "controllers/" . $role . "/" . $controllerName . ".php";
+$sessionSavePath = AppEnv::get('SESSION_SAVE_PATH', __DIR__ . DIRECTORY_SEPARATOR . 'storage' . DIRECTORY_SEPARATOR . 'sessions');
+if ($sessionSavePath && !is_dir($sessionSavePath)) {
+    mkdir($sessionSavePath, 0775, true);
+}
+if ($sessionSavePath && is_dir($sessionSavePath) && is_writable($sessionSavePath)) {
+    session_save_path($sessionSavePath);
+}
 
-// 5. Kiểm tra file Controller có tồn tại thực tế không
-if (file_exists($controllerPath)) {
-    require_once $controllerPath;
-    
-    // Khởi tạo kết nối Database dùng chung
-    $database = new Database();
-    $db = $database->getConnection();
+$routes = [
+    'user' => [
+        'product' => [
+            'class' => 'ProductController',
+            'file' => 'controllers/user/ProductController.php',
+            'actions' => [
+                'index' => 'index',
+                'search' => 'search',
+                'detail' => 'detail',
+                'setalert' => 'setAlert',
+                'removealert' => 'removeAlert',
+                'readnotification' => 'readNotification',
+                'myalerts' => 'myAlerts',
+                'suggest' => 'suggest',
+            ],
+        ],
+        'auth' => [
+            'class' => 'AuthController',
+            'file' => 'controllers/user/AuthController.php',
+            'actions' => [
+                'login' => 'login',
+                'register' => 'register',
+                'postregister' => 'postRegister',
+                'verify' => 'verify',
+                'postverify' => 'postVerify',
+                'resendotp' => 'resendOTP',
+                'postlogin' => 'postLogin',
+                'logout' => 'logout',
+            ],
+        ],
+    ],
+    'admin' => [
+        'dashboard' => [
+            'class' => 'DashboardController',
+            'file' => 'controllers/admin/DashboardController.php',
+            'actions' => [
+                'index' => 'index',
+                'alerts' => 'alerts',
+            ],
+        ],
+        'adminproduct' => [
+            'class' => 'AdminProductController',
+            'file' => 'controllers/admin/AdminProductController.php',
+            'actions' => [
+                'index' => 'index',
+                'add' => 'add',
+                'update' => 'update',
+                'delete' => 'delete',
+            ],
+        ],
+        'admincategory' => [
+            'class' => 'AdminCategoryController',
+            'file' => 'controllers/admin/AdminCategoryController.php',
+            'actions' => [
+                'index' => 'index',
+                'add' => 'add',
+                'update' => 'update',
+                'delete' => 'delete',
+            ],
+        ],
+        'adminplatform' => [
+            'class' => 'AdminPlatformController',
+            'file' => 'controllers/admin/AdminPlatformController.php',
+            'actions' => [
+                'index' => 'index',
+                'add' => 'add',
+                'update' => 'update',
+                'delete' => 'delete',
+            ],
+        ],
+        'bot' => [
+            'class' => 'BotController',
+            'file' => 'controllers/admin/BotController.php',
+            'actions' => [
+                'index' => 'index',
+                'run' => 'run',
+            ],
+        ],
+    ],
+];
 
-    // Khởi tạo Object của Controller (VD: new DashboardController($db))
-    if (class_exists($controllerName)) {
-        $controllerObject = new $controllerName($db);
-
-        // Kiểm tra xem hàm (Action) có tồn tại trong Controller đó không
-        if (method_exists($controllerObject, $actionName)) {
-            // Lấy thêm tham số ID nếu có (phục vụ trang chi tiết, xóa, sửa...)
-            $id = isset($_GET['id']) ? $_GET['id'] : null;
-            
-            // THỰC THI: Gọi hàm xử lý
-            $controllerObject->$actionName($id);
-        } else {
-            die("Critical Error: Action <strong>$actionName</strong> không tồn tại trong class <strong>$controllerName</strong>.");
-        }
-    } else {
-        die("Critical Error: Class <strong>$controllerName</strong> không tìm thấy trong file.");
-    }
-} else {
-    // Nếu truy cập sai Role hoặc Controller, báo lỗi 404 chuyên nghiệp
-    echo "<div style='text-align:center; margin-top:100px;'>
-            <h1>404 - KHÔNG TÌM THẤY TRANG</h1>
-            <p>Đường dẫn: <i>$controllerPath</i> không tồn tại.</p>
-            <a href='index.php'>Quay lại Trang Chủ</a>
+function render_error_page($statusCode, $title, $message) {
+    http_response_code($statusCode);
+    $safeTitle = htmlspecialchars($title, ENT_QUOTES, 'UTF-8');
+    $safeMessage = htmlspecialchars($message, ENT_QUOTES, 'UTF-8');
+    echo "<div style='text-align:center; margin-top:100px; font-family:Arial,sans-serif;'>
+            <h1>{$safeTitle}</h1>
+            <p>{$safeMessage}</p>
+            <a href='index.php'>Quay lai Trang Chu</a>
           </div>";
+    exit();
+}
+
+$role = strtolower($_GET['role'] ?? 'user');
+$defaultController = ($role === 'admin') ? 'dashboard' : 'product';
+$controllerKey = strtolower(preg_replace('/[^a-zA-Z0-9_]/', '', $_GET['controller'] ?? $defaultController));
+$actionKey = strtolower(preg_replace('/[^a-zA-Z0-9_]/', '', $_GET['action'] ?? 'index'));
+
+if (!isset($routes[$role], $routes[$role][$controllerKey])) {
+    render_error_page(404, '404 - Khong tim thay trang', 'Role hoac controller khong hop le.');
+}
+
+$route = $routes[$role][$controllerKey];
+if (!isset($route['actions'][$actionKey])) {
+    render_error_page(404, '404 - Khong tim thay action', 'Action khong nam trong danh sach duoc phep.');
+}
+
+if (!is_readable($route['file'])) {
+    render_error_page(500, 'Loi he thong', 'Khong tim thay file controller.');
+}
+
+require_once $route['file'];
+
+$controllerName = $route['class'];
+$actionName = $route['actions'][$actionKey];
+
+if (!class_exists($controllerName)) {
+    render_error_page(500, 'Loi he thong', 'Class controller khong ton tai.');
+}
+
+$database = new Database();
+$db = $database->getConnection();
+$controllerObject = new $controllerName($db);
+
+if (!method_exists($controllerObject, $actionName)) {
+    render_error_page(500, 'Loi he thong', 'Method controller khong ton tai.');
+}
+
+$id = isset($_GET['id']) ? (int) $_GET['id'] : null;
+$method = new ReflectionMethod($controllerObject, $actionName);
+
+if ($method->getNumberOfParameters() > 0) {
+    $controllerObject->$actionName($id);
+} else {
+    $controllerObject->$actionName();
 }
 ?>

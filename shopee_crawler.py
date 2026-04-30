@@ -9,6 +9,7 @@ import random
 import re
 from datetime import datetime
 import sys
+from app_config import get_chrome_version_main, get_db_config, get_profile_path
 
 sys.stdout.reconfigure(encoding='utf-8')
 
@@ -61,7 +62,7 @@ def shallow_scroll(driver):
 # ==========================================
 if __name__ == "__main__":
     try:
-        db = mysql.connector.connect(host="127.0.0.1", port=3307, user="root", password="", database="web_test")
+        db = mysql.connector.connect(**get_db_config())
         cursor = db.cursor(dictionary=True)
         
         sql_batch = f"""
@@ -81,7 +82,7 @@ if __name__ == "__main__":
 
     # --- CẤU HÌNH CHROME (ĐÃ BỔ SUNG CỜ LỆNH CHỐNG NGỦ ĐÔNG) ---
     options = uc.ChromeOptions()
-    profile_path = os.path.join(os.getcwd(), "master_profile")
+    profile_path = get_profile_path("master_profile")
     options.add_argument(f"--user-data-dir={profile_path}")
     
     # Ép Chrome chạy ngầm không bị giảm hiệu năng
@@ -90,11 +91,19 @@ if __name__ == "__main__":
     options.add_argument("--disable-renderer-backgrounding")
     options.add_argument("--window-size=1920,1080") # Đảm bảo Font-size luôn được tính toán đúng
     
+    # [FIX LỖI MẤT HÌNH CAPTCHA SHOPEE]: 
+    # Ép trình duyệt LUÔN TẢI HÌNH ẢNH (images: 1) để đè lên cấu hình chặn ảnh (images: 2) của Lazada đã lưu trong Profile
+    prefs = {
+        "profile.managed_default_content_settings.images": 1,
+        "profile.default_content_setting_values.notifications": 2 # Vẫn chặn thông báo
+    }
+    options.add_experimental_option("prefs", prefs)
+    
     if HEADLESS_MODE: options.add_argument("--headless=new")
     
     driver = None
     try:
-        driver = uc.Chrome(options=options, version_main=147) 
+        driver = uc.Chrome(options=options, version_main=get_chrome_version_main(147)) 
         
         # BƯỚC MỒI: LẤY TRUST COOKIE TỪ TRANG CHỦ
         print("🌐 Đang truy cập trang chủ Shopee để lấy Trust Cookie...")

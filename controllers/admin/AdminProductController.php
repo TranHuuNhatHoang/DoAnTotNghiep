@@ -4,7 +4,7 @@ class AdminProductController {
     private $productModel;
     private $categoryModel;
 
-    public function __construct() {
+    public function __construct($db = null) {
         if (session_status() === PHP_SESSION_NONE) { session_start(); }
         // Kiểm tra quyền Admin
         if (!isset($_SESSION['user_role']) || $_SESSION['user_role'] !== 'admin') {
@@ -12,7 +12,12 @@ class AdminProductController {
             exit();
         }
 
-        $this->db = new mysqli("127.0.0.1", "root", "", "web_test", 3307);
+        $this->db = $db;
+        if (!$this->db) {
+            require_once 'config/database.php';
+            $database = new Database();
+            $this->db = $database->getConnection();
+        }
         
         require_once 'models/ProductModel.php';
         require_once 'models/CategoryModel.php';

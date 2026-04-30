@@ -25,6 +25,7 @@
         .product-card { background: white; border-radius: 12px; padding: 15px; border: 1px solid #f0f0f0; transition: all 0.3s; height: 100%; display: flex; flex-direction: column; position: relative; overflow: hidden; }
         .product-card:hover { transform: translateY(-5px); box-shadow: 0 15px 30px rgba(0,0,0,0.08); border-color: transparent; }
         .product-img-wrapper { height: 180px; background: #f8f9fa; border-radius: 8px; margin-bottom: 15px; display: flex; align-items: center; justify-content: center; }
+        .product-img-wrapper img { width: 100%; height: 100%; object-fit: contain; padding: 10px; }
         .product-title { font-size: 0.95rem; font-weight: 600; color: #333; margin-bottom: 10px; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
         .price-min { font-size: 1.3rem; font-weight: bold; color: #ff424e; }
         .platform-prices { display: flex; justify-content: space-between; margin-top: 10px; border-top: 1px dashed #eee; padding-top: 10px; }
@@ -152,7 +153,11 @@
                             <div class="product-card">
                                 <a href="index.php?role=user&controller=product&action=detail&id=<?php echo $p['id']; ?>" class="text-decoration-none">
                                     <div class="product-img-wrapper">
-                                        <i class="fas fa-box fa-3x text-muted opacity-25"></i>
+                                        <?php if(!empty($p['thumbnail_url'])): ?>
+                                            <img src="<?php echo htmlspecialchars($p['thumbnail_url']); ?>" alt="<?php echo htmlspecialchars($p['name']); ?>">
+                                        <?php else: ?>
+                                            <i class="fas fa-box fa-3x text-muted opacity-25"></i>
+                                        <?php endif; ?>
                                     </div>
                                     <h5 class="product-title"><?php echo htmlspecialchars($p['name']); ?></h5>
                                 </a>

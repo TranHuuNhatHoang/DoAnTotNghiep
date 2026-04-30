@@ -3,14 +3,12 @@
 set_time_limit(0);
 
 // Nạp các thư viện cần thiết
+require_once __DIR__ . '/config/database.php';
 require_once __DIR__ . '/services/MailService.php';
 
 // KẾT NỐI DATABASE
-$conn = new mysqli("127.0.0.1", "root", "", "web_test", 3307); 
-if ($conn->connect_error) {
-    die("Lỗi kết nối CSDL: " . $conn->connect_error);
-}
-$conn->set_charset("utf8mb4");
+$database = new Database();
+$conn = $database->getConnection();
 
 echo "=================================================\n";
 echo "BẮT ĐẦU QUÉT CẢNH BÁO GIÁ (" . date('Y-m-d H:i:s') . ")\n";

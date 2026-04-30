@@ -11,7 +11,7 @@ class ProductModel {
     public function getAllProductsWithStats() {
         $sql = "SELECT p.*, 
                 c.name as category_name,
-                (SELECT COUNT(*) FROM platform_links WHERE product_id = p.id AND status = 1) as total_active_links,
+                (SELECT COUNT(*) FROM platform_links WHERE product_id = p.id AND is_active = 1) as total_active_links,
                 (SELECT MAX(last_scraped_at) FROM platform_links WHERE product_id = p.id) as last_update
                 FROM products p 
                 LEFT JOIN categories c ON p.category_id = c.id
@@ -23,7 +23,7 @@ class ProductModel {
     // Bổ sung hàm lấy 6 sản phẩm Hot trực tiếp từ DB (Tối ưu hiệu suất)
     public function getTrendingProducts() {
         $sql = "SELECT p.*, 
-                (SELECT COUNT(*) FROM platform_links WHERE product_id = p.id AND status = 1) as total_active_links,
+                (SELECT COUNT(*) FROM platform_links WHERE product_id = p.id AND is_active = 1) as total_active_links,
                 (SELECT MAX(last_scraped_at) FROM platform_links WHERE product_id = p.id) as last_update
                 FROM products p 
                 ORDER BY p.id DESC 
@@ -37,8 +37,8 @@ class ProductModel {
     public function getNewProducts() {
         $sql = "SELECT p.*, 
                 c.name as category_name,
-                (SELECT COUNT(*) FROM platform_links WHERE product_id = p.id AND status = 1) as total_active_links,
-                (SELECT MIN(current_price) FROM platform_links WHERE product_id = p.id AND current_price > 0) as min_price
+                (SELECT COUNT(*) FROM platform_links WHERE product_id = p.id AND is_active = 1) as total_active_links,
+                (SELECT MIN(current_price) FROM platform_links WHERE product_id = p.id AND is_active = 1 AND current_price > 0) as min_price
                 FROM products p 
                 LEFT JOIN categories c ON p.category_id = c.id
                 ORDER BY p.id DESC LIMIT 8";
@@ -52,8 +52,8 @@ class ProductModel {
     public function getTopDeals() {
         $sql = "SELECT p.*, 
                 c.name as category_name,
-                (SELECT COUNT(*) FROM platform_links WHERE product_id = p.id AND status = 1) as total_active_links,
-                (SELECT MIN(current_price) FROM platform_links WHERE product_id = p.id AND current_price > 0) as min_price
+                (SELECT COUNT(*) FROM platform_links WHERE product_id = p.id AND is_active = 1) as total_active_links,
+                (SELECT MIN(current_price) FROM platform_links WHERE product_id = p.id AND is_active = 1 AND current_price > 0) as min_price
                 FROM products p 
                 LEFT JOIN categories c ON p.category_id = c.id
                 HAVING total_active_links > 1
@@ -69,12 +69,12 @@ class ProductModel {
         // Cốt lõi cũ (Lấy giá 3 sàn) + Tính năng mới (LEFT JOIN Categories)
         $sql = "SELECT p.*, 
                 c.name as category_name,
-                (SELECT current_price FROM platform_links WHERE product_id = p.id AND platform_name = 'Tiki' LIMIT 1) as tiki_price,
-                (SELECT current_price FROM platform_links WHERE product_id = p.id AND platform_name = 'Shopee' LIMIT 1) as shopee_price,
-                (SELECT current_price FROM platform_links WHERE product_id = p.id AND platform_name = 'Lazada' LIMIT 1) as lazada_price,
-                (SELECT product_url FROM platform_links WHERE product_id = p.id AND platform_name = 'Tiki' LIMIT 1) as tiki_url,
-                (SELECT product_url FROM platform_links WHERE product_id = p.id AND platform_name = 'Shopee' LIMIT 1) as shopee_url,
-                (SELECT product_url FROM platform_links WHERE product_id = p.id AND platform_name = 'Lazada' LIMIT 1) as lazada_url
+                (SELECT current_price FROM platform_links WHERE product_id = p.id AND platform_name = 'Tiki' AND is_active = 1 LIMIT 1) as tiki_price,
+                (SELECT current_price FROM platform_links WHERE product_id = p.id AND platform_name = 'Shopee' AND is_active = 1 LIMIT 1) as shopee_price,
+                (SELECT current_price FROM platform_links WHERE product_id = p.id AND platform_name = 'Lazada' AND is_active = 1 LIMIT 1) as lazada_price,
+                (SELECT product_url FROM platform_links WHERE product_id = p.id AND platform_name = 'Tiki' AND is_active = 1 LIMIT 1) as tiki_url,
+                (SELECT product_url FROM platform_links WHERE product_id = p.id AND platform_name = 'Shopee' AND is_active = 1 LIMIT 1) as shopee_url,
+                (SELECT product_url FROM platform_links WHERE product_id = p.id AND platform_name = 'Lazada' AND is_active = 1 LIMIT 1) as lazada_url
                 FROM products p 
                 LEFT JOIN categories c ON p.category_id = c.id
                 WHERE p.name LIKE ?";
@@ -164,7 +164,7 @@ class ProductModel {
         $result = $stmtCheck->get_result();
 
         if ($result->num_rows > 0) {
-            $updateSql = "UPDATE platform_links SET product_url = ?, status = 0 WHERE product_id = ? AND platform_name = ?";
+            $updateSql = "UPDATE platform_links SET product_url = ?, status = 0, is_active = 1 WHERE product_id = ? AND platform_name = ?";
             $stmtUpdate = $this->conn->prepare($updateSql);
             $stmtUpdate->bind_param("sis", $url, $productId, $platformName);
             return $stmtUpdate->execute();
@@ -205,7 +205,7 @@ class ProductModel {
     public function getAllAlertsForAdmin() {
         // Lấy thông tin User, Sản phẩm, Giá mong muốn, và Giá hiện tại rẻ nhất của sản phẩm đó
         $sql = "SELECT pa.id, u.email, p.name as product_name, p.id as p_id, pa.target_price, pa.is_notified, pa.created_at,
-                       (SELECT MIN(current_price) FROM platform_links WHERE product_id = p.id AND current_price > 0) as current_min_price
+                       (SELECT MIN(current_price) FROM platform_links WHERE product_id = p.id AND is_active = 1 AND current_price > 0) as current_min_price
                 FROM price_alerts pa
                 JOIN users u ON pa.user_id = u.id
                 JOIN products p ON pa.product_id = p.id
@@ -247,9 +247,15 @@ class ProductModel {
     public function getSuggestions($keyword) {
         $searchTerm = "%" . $keyword . "%";
         // Lấy 5 sản phẩm và 3 danh mục khớp với từ khóa
-        $sql = "SELECT id, name, 'product' as type FROM products WHERE name LIKE ? LIMIT 5
-                UNION
-                SELECT id, name, 'category' as type FROM categories WHERE name LIKE ? LIMIT 3";
+        $sql = "(SELECT id,
+                        CONVERT(name USING utf8mb4) COLLATE utf8mb4_unicode_ci as name,
+                        CAST('product' AS CHAR CHARACTER SET utf8mb4) COLLATE utf8mb4_unicode_ci as type
+                 FROM products WHERE name LIKE ? LIMIT 5)
+                UNION ALL
+                (SELECT id,
+                        CONVERT(name USING utf8mb4) COLLATE utf8mb4_unicode_ci as name,
+                        CAST('category' AS CHAR CHARACTER SET utf8mb4) COLLATE utf8mb4_unicode_ci as type
+                 FROM categories WHERE name LIKE ? LIMIT 3)";
         $stmt = $this->conn->prepare($sql);
         $stmt->bind_param("ss", $searchTerm, $searchTerm);
         $stmt->execute();
@@ -263,10 +269,10 @@ class ProductModel {
         $searchTerm = "%" . $keyword . "%";
         
         $sql = "SELECT p.*, c.name as category_name,
-                (SELECT current_price FROM platform_links WHERE product_id = p.id AND platform_name = 'Tiki' LIMIT 1) as tiki_price,
-                (SELECT current_price FROM platform_links WHERE product_id = p.id AND platform_name = 'Shopee' LIMIT 1) as shopee_price,
-                (SELECT current_price FROM platform_links WHERE product_id = p.id AND platform_name = 'Lazada' LIMIT 1) as lazada_price,
-                (SELECT MIN(current_price) FROM platform_links WHERE product_id = p.id AND current_price > 0) as min_price
+                (SELECT current_price FROM platform_links WHERE product_id = p.id AND platform_name = 'Tiki' AND is_active = 1 LIMIT 1) as tiki_price,
+                (SELECT current_price FROM platform_links WHERE product_id = p.id AND platform_name = 'Shopee' AND is_active = 1 LIMIT 1) as shopee_price,
+                (SELECT current_price FROM platform_links WHERE product_id = p.id AND platform_name = 'Lazada' AND is_active = 1 LIMIT 1) as lazada_price,
+                (SELECT MIN(current_price) FROM platform_links WHERE product_id = p.id AND is_active = 1 AND current_price > 0) as min_price
                 FROM products p 
                 LEFT JOIN categories c ON p.category_id = c.id
                 WHERE p.name LIKE ?";
@@ -279,13 +285,13 @@ class ProductModel {
         
         // Lọc theo Sàn (Chỉ lấy SP có link trên sàn đó)
         if ($platform) {
-            $sql .= " AND EXISTS (SELECT 1 FROM platform_links WHERE product_id = p.id AND platform_name = ? AND current_price > 0)";
+            $sql .= " AND EXISTS (SELECT 1 FROM platform_links WHERE product_id = p.id AND platform_name = ? AND is_active = 1 AND current_price > 0)";
             $params[] = $platform; $types .= "s";
         }
 
         // Lọc theo Khoảng giá (Dựa trên giá rẻ nhất hiện có)
-        if ($minPrice) { $sql .= " AND (SELECT MIN(current_price) FROM platform_links WHERE product_id = p.id) >= ?"; $params[] = $minPrice; $types .= "i"; }
-        if ($maxPrice) { $sql .= " AND (SELECT MIN(current_price) FROM platform_links WHERE product_id = p.id) <= ?"; $params[] = $maxPrice; $types .= "i"; }
+        if ($minPrice) { $sql .= " AND (SELECT MIN(current_price) FROM platform_links WHERE product_id = p.id AND is_active = 1 AND current_price > 0) >= ?"; $params[] = $minPrice; $types .= "i"; }
+        if ($maxPrice) { $sql .= " AND (SELECT MIN(current_price) FROM platform_links WHERE product_id = p.id AND is_active = 1 AND current_price > 0) <= ?"; $params[] = $maxPrice; $types .= "i"; }
 
         // Sắp xếp
         switch($sort) {
@@ -303,7 +309,7 @@ class ProductModel {
     public function getRelatedProducts($categoryId, $excludeProductId) {
         if (!$categoryId) return [];
         $sql = "SELECT p.*, 
-                (SELECT MIN(current_price) FROM platform_links WHERE product_id = p.id AND current_price > 0) as min_price
+                (SELECT MIN(current_price) FROM platform_links WHERE product_id = p.id AND is_active = 1 AND current_price > 0) as min_price
                 FROM products p 
                 WHERE p.category_id = ? AND p.id != ? 
                 ORDER BY p.id DESC LIMIT 4";

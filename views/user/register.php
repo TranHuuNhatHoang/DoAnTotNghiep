@@ -21,6 +21,8 @@
 
         <?php if(isset($_GET['error']) && $_GET['error'] == 'password_mismatch'): ?>
             <div class="alert alert-danger py-2">Mật khẩu nhập lại không khớp!</div>
+        <?php elseif(isset($_GET['error']) && $_GET['error'] == 'invalid_email'): ?>
+            <div class="alert alert-danger py-2">Email khong hop le!</div>
         <?php elseif(isset($_GET['error']) && $_GET['error'] == 'email_exists'): ?>
             <div class="alert alert-danger py-2">Email này đã được sử dụng!</div>
         <?php endif; ?>
