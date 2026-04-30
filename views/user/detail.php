@@ -1,348 +1,389 @@
-<?php if (session_status() === PHP_SESSION_NONE) { session_start(); } 
-// Logic tính toán Insight (Chỉ chạy ở View)
-$cheapest = !empty($platforms) ? $platforms[0]['current_price'] : 0;
-$avgPrice = !empty($priceStats['avg_price']) ? round($priceStats['avg_price']) : 0;
-$diffAvg = $avgPrice > 0 ? (($avgPrice - $cheapest) / $avgPrice) * 100 : 0;
+<?php
+if (session_status() === PHP_SESSION_NONE) {
+    session_start();
+}
+
+function e_detail($value) {
+    return htmlspecialchars((string) $value, ENT_QUOTES, 'UTF-8');
+}
+
+function money_detail($value) {
+    return (!empty($value) && (int) $value > 0) ? number_format((int) $value) . ' đ' : 'Đang cập nhật';
+}
+
+function platform_logo($platform) {
+    return [
+        'Tiki' => 'https://upload.wikimedia.org/wikipedia/commons/4/43/Logo_Tiki_2023.png',
+        'Shopee' => 'https://upload.wikimedia.org/wikipedia/commons/f/fe/Shopee.svg',
+        'Lazada' => 'https://upload.wikimedia.org/wikipedia/commons/thumb/0/0e/Lazada_logo.svg/2560px-Lazada_logo.svg.png',
+    ][$platform] ?? '';
+}
+
+$cheapest = !empty($platforms) ? (int) ($platforms[0]['current_price'] ?? 0) : 0;
+$avgPrice = !empty($priceStats['avg_price']) ? (int) round($priceStats['avg_price']) : 0;
+$diffAvg = ($avgPrice > 0 && $cheapest > 0) ? (($avgPrice - $cheapest) / $avgPrice) * 100 : 0;
+$thumbnail = trim((string) ($product['thumbnail_url'] ?? ''));
+$productSpecs = $productSpecs ?? [];
 ?>
 <!DOCTYPE html>
 <html lang="vi">
 <head>
     <meta charset="UTF-8">
-    <title><?php echo htmlspecialchars($product['name']); ?> - So Sánh Giá</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title><?php echo e_detail($product['name']); ?> - SmartPrice</title>
     <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
-    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css">
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
     <style>
-        body { background-color: #f5f5fa; font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; }
-        .rounded-4 { border-radius: 1rem !important; }
-        .shadow-hover:hover { box-shadow: 0 .5rem 1rem rgba(0,0,0,.15)!important; transform: translateY(-2px); transition: 0.3s; }
-        
-        /* Product Image Placeholder */
-        .product-gallery { background: #fff; border: 1px solid #eee; height: 350px; display: flex; align-items: center; justify-content: center; }
-        
-        /* Table So sánh */
-        .comparison-table tbody tr:hover { background-color: #f8f9fa; }
-        .cheapest-row { border: 2px solid #ff424e !important; background-color: #fff4f4 !important; border-radius: 10px; }
-        .plat-logo { height: 25px; width: 80px; object-fit: contain; }
-        
-        /* Custom Button & Slider */
-        .btn-buy { background: #ff424e; color: white; font-weight: bold; }
-        .btn-buy:hover { background: #e03a45; color: white; }
-        input[type=range] { accent-color: #ffc107; }
-        
-        /* Skeleton Animation */
-        @keyframes skeleton-loading { 0% { background-color: #e9ecef; } 50% { background-color: #dee2e6; } 100% { background-color: #e9ecef; } }
-        .skeleton { animation: skeleton-loading 1.5s infinite; border-radius: 4px; }
+        :root { --ink:#111827; --muted:#667085; --line:#e6e8ef; --page:#f5f7fb; --brand:#f7c600; --accent:#d92d20; --blue:#0b5fff; --green:#0f8a5f; }
+        body { background:var(--page); color:var(--ink); font-family:"Segoe UI",Arial,sans-serif; }
+        a { color:inherit; }
+        .header { background:#111827; box-shadow:0 8px 20px rgba(16,24,40,0.18); position:sticky; top:0; z-index:1020; }
+        .header-inner { min-height:72px; display:flex; align-items:center; justify-content:space-between; gap:18px; }
+        .brand { color:#fff; text-decoration:none; display:inline-flex; align-items:center; gap:10px; font-weight:900; font-size:1.3rem; }
+        .brand-icon { width:40px; height:40px; border-radius:8px; display:grid; place-items:center; background:var(--brand); color:#111827; }
+        .header-actions { display:flex; gap:10px; align-items:center; }
+        .header-btn { min-height:42px; display:inline-flex; align-items:center; gap:8px; padding:0 14px; color:#fff; text-decoration:none; border:1px solid rgba(255,255,255,0.18); background:rgba(255,255,255,0.08); border-radius:8px; font-weight:800; }
+        .header-btn:hover { color:#fff; background:rgba(255,255,255,0.14); }
+        .page { padding:24px 0 48px; }
+        .product-hero { display:grid; grid-template-columns:420px minmax(0,1fr); gap:18px; margin-bottom:18px; }
+        .panel { background:#fff; border:1px solid var(--line); border-radius:8px; }
+        .gallery { padding:18px; }
+        .product-image { height:390px; border-radius:8px; background:#f8fafc; display:grid; place-items:center; overflow:hidden; }
+        .product-image img { width:100%; height:100%; object-fit:contain; padding:18px; }
+        .product-image i { font-size:5rem; color:#cbd5e1; }
+        .summary { padding:22px; display:flex; flex-direction:column; min-height:426px; }
+        .tag-row { display:flex; flex-wrap:wrap; gap:8px; margin-bottom:12px; }
+        .tag { height:28px; padding:0 10px; border-radius:6px; display:inline-flex; align-items:center; gap:6px; font-size:.78rem; font-weight:900; }
+        .tag.hot { background:#fff1f0; color:var(--accent); }
+        .tag.good { background:#ecfdf3; color:var(--green); }
+        .product-title { font-size:1.72rem; line-height:1.25; font-weight:900; margin:0 0 10px; }
+        .description { color:var(--muted); font-weight:600; margin-bottom:18px; }
+        .metric-grid { display:grid; grid-template-columns:repeat(3,minmax(0,1fr)); gap:12px; margin-top:auto; }
+        .metric { border:1px solid var(--line); border-radius:8px; padding:14px; background:#fff; }
+        .metric span { display:block; color:var(--muted); font-size:.78rem; font-weight:900; text-transform:uppercase; margin-bottom:4px; }
+        .metric strong { color:var(--accent); font-size:1.28rem; font-weight:900; }
+        .content-layout { display:grid; grid-template-columns:minmax(0,1fr) 360px; gap:18px; }
+        .section-card { background:#fff; border:1px solid var(--line); border-radius:8px; padding:18px; margin-bottom:18px; }
+        .section-head { display:flex; justify-content:space-between; align-items:center; gap:12px; margin-bottom:14px; }
+        .section-title { margin:0; font-size:1.16rem; font-weight:900; }
+        .spec-layout { display:grid; gap:14px; }
+        .spec-group { border:1px solid var(--line); border-radius:8px; overflow:hidden; background:#fff; }
+        .spec-group-title { margin:0; padding:12px 14px; background:#f8fafc; border-bottom:1px solid var(--line); font-size:.98rem; font-weight:900; }
+        .spec-table { display:grid; }
+        .spec-row { display:grid; grid-template-columns:220px minmax(0,1fr); gap:14px; padding:12px 14px; border-bottom:1px solid var(--line); }
+        .spec-row:last-child { border-bottom:0; }
+        .spec-row:nth-child(even) { background:#fcfcfd; }
+        .spec-name { color:var(--muted); font-weight:800; }
+        .spec-value { font-weight:700; overflow-wrap:anywhere; }
+        .seller-row { display:grid; grid-template-columns:140px minmax(0,1fr) auto; align-items:center; gap:16px; padding:14px; border:1px solid var(--line); border-radius:8px; margin-bottom:10px; }
+        .seller-row.best { border-color:#fecdca; background:#fff8f7; }
+        .seller-logo { width:92px; height:34px; object-fit:contain; }
+        .seller-price { color:var(--accent); font-size:1.22rem; font-weight:900; }
+        .seller-note { color:var(--muted); font-size:.82rem; font-weight:700; }
+        .buy-btn { min-height:42px; display:inline-flex; align-items:center; justify-content:center; gap:8px; border-radius:8px; padding:0 14px; background:#111827; color:#fff; text-decoration:none; font-weight:900; white-space:nowrap; }
+        .buy-btn:hover { color:#fff; background:#1f2937; }
+        .buy-btn.best { background:var(--accent); }
+        .alert-card { position:sticky; top:96px; padding:18px; }
+        .alert-icon { width:46px; height:46px; border-radius:8px; display:grid; place-items:center; background:#fffbeb; color:#111827; margin-bottom:12px; }
+        .form-control { height:48px; border-radius:8px; border:1px solid var(--line); font-weight:800; }
+        .form-control:focus { border-color:var(--brand); box-shadow:0 0 0 4px rgba(247,198,0,.18); }
+        .preset-row { display:grid; grid-template-columns:repeat(3,1fr); gap:8px; }
+        .preset-row button { height:38px; border:1px solid var(--line); border-radius:8px; background:#fff; color:var(--accent); font-weight:900; }
+        .primary-btn { height:48px; border:0; border-radius:8px; background:#111827; color:#fff; font-weight:900; width:100%; }
+        .primary-btn:hover { background:#1f2937; color:#fff; }
+        .secondary-link { height:44px; display:flex; align-items:center; justify-content:center; border-radius:8px; text-decoration:none; background:#fff5f5; color:var(--accent); border:1px solid #fee4e2; font-weight:900; }
+        .chart-wrap { height:340px; }
+        .stats-row { display:grid; grid-template-columns:repeat(3,1fr); gap:10px; margin-bottom:16px; }
+        .stat-pill { border:1px solid var(--line); border-radius:8px; padding:12px; }
+        .stat-pill span { color:var(--muted); font-size:.78rem; font-weight:900; display:block; }
+        .stat-pill strong { font-size:1.05rem; font-weight:900; }
+        .related-grid { display:grid; grid-template-columns:repeat(4,minmax(0,1fr)); gap:14px; }
+        .related-card { background:#fff; border:1px solid var(--line); border-radius:8px; padding:12px; text-decoration:none; display:block; height:100%; }
+        .related-img { height:135px; border-radius:8px; background:#f8fafc; display:grid; place-items:center; overflow:hidden; margin-bottom:10px; }
+        .related-img img { width:100%; height:100%; object-fit:contain; padding:8px; }
+        .related-name { min-height:40px; font-weight:800; display:-webkit-box; -webkit-line-clamp:2; -webkit-box-orient:vertical; overflow:hidden; }
+        @media (max-width:1100px){ .product-hero,.content-layout{grid-template-columns:1fr;} .alert-card{position:static;} .related-grid{grid-template-columns:repeat(2,1fr);} }
+        @media (max-width:640px){ .seller-row,.spec-row{grid-template-columns:1fr;} .metric-grid,.stats-row{grid-template-columns:1fr;} .related-grid{grid-template-columns:1fr;} .header-inner{flex-direction:column; padding:14px 0;} }
     </style>
 </head>
-<body class="d-flex flex-column min-vh-100">
-
-<nav class="navbar navbar-expand-lg navbar-dark bg-dark sticky-top shadow-sm py-3">
-    <div class="container d-flex justify-content-between">
-        <a class="navbar-brand fw-bold" href="index.php"><i class="fas fa-search-dollar text-warning me-2"></i>SmartPrice</a>
-        <a href="javascript:history.back()" class="btn btn-outline-light btn-sm rounded-pill"><i class="fas fa-arrow-left me-2"></i>Quay lại</a>
-    </div>
-</nav>
-
-<div class="container py-4 flex-grow-1">
-    
-    <div class="row bg-white rounded-4 shadow-sm p-4 mb-4">
-        <div class="col-lg-4 mb-4 mb-lg-0">
-            <div class="product-gallery rounded-4 shadow-sm">
-                <i class="fas fa-box-open fa-7x text-muted opacity-25"></i>
-            </div>
+<body>
+<header class="header">
+    <div class="container header-inner">
+        <a href="index.php" class="brand"><span class="brand-icon"><i class="fas fa-tags"></i></span>SmartPrice</a>
+        <div class="header-actions">
+            <a href="javascript:history.back()" class="header-btn"><i class="fas fa-arrow-left"></i>Quay lại</a>
+            <a href="index.php" class="header-btn"><i class="fas fa-home"></i>Trang chủ</a>
         </div>
-        
-        <div class="col-lg-8">
-            <div class="d-flex align-items-center mb-2 gap-2">
-                <span class="badge bg-danger rounded-pill px-3 py-2"><i class="fas fa-fire me-1"></i> Giá Tốt Nhất</span>
-                <?php if($diffAvg > 5): ?>
-                    <span class="badge bg-success rounded-pill px-3 py-2"><i class="fas fa-arrow-down me-1"></i> Giảm mạnh <?php echo round($diffAvg); ?>%</span>
+    </div>
+</header>
+
+<main class="container page">
+    <section class="product-hero">
+        <div class="panel gallery">
+            <div class="product-image">
+                <?php if ($thumbnail !== ''): ?>
+                    <img src="<?php echo e_detail($thumbnail); ?>" alt="<?php echo e_detail($product['name']); ?>">
+                <?php else: ?>
+                    <i class="fas fa-box-open"></i>
                 <?php endif; ?>
-                <div class="text-warning ms-auto"><i class="fas fa-star"></i><i class="fas fa-star"></i><i class="fas fa-star"></i><i class="fas fa-star"></i><i class="fas fa-star-half-alt"></i> <span class="text-muted small">(4.8/5)</span></div>
-            </div>
-            
-            <h3 class="fw-bold text-dark mb-3"><?php echo htmlspecialchars($product['name']); ?></h3>
-            <p class="text-muted small mb-4"><?php echo htmlspecialchars($product['description']); ?></p>
-
-            <div class="row g-3">
-                <div class="col-md-6">
-                    <div class="p-3 bg-light rounded-4 border">
-                        <div class="text-muted small fw-bold text-uppercase mb-1">Giá Rẻ Nhất Hôm Nay</div>
-                        <div class="h1 text-danger fw-bold mb-0">
-                            <?php echo ($cheapest > 0) ? number_format($cheapest).' ₫' : 'Hết hàng'; ?>
-                        </div>
-                    </div>
-                </div>
-                
-                <div class="col-md-6">
-                    <div class="p-3 rounded-4 border <?php echo ($diffAvg > 0) ? 'bg-success text-white' : 'bg-warning text-dark'; ?> h-100 d-flex flex-column justify-content-center">
-                        <h6 class="fw-bold mb-1"><i class="fas fa-robot me-2"></i>AI Phân Tích Giá:</h6>
-                        <?php if($diffAvg > 0): ?>
-                            <div class="small mb-2">Giá hiện tại đang thấp hơn mức trung bình (<?php echo number_format($avgPrice); ?>đ).</div>
-                            <h5 class="fw-bold mb-0"><i class="fas fa-shopping-cart me-2"></i>Khuyên dùng: NÊN MUA NGAY</h5>
-                        <?php else: ?>
-                            <div class="small mb-2">Giá đang ở mức cao hoặc bằng trung bình.</div>
-                            <h5 class="fw-bold mb-0"><i class="fas fa-hand-paper me-2"></i>Khuyên dùng: NÊN CHỜ THÊM</h5>
-                        <?php endif; ?>
-                    </div>
-                </div>
             </div>
         </div>
-    </div>
 
-    <div class="row g-4">
-        <div class="col-lg-8">
-            
-            <div class="bg-white rounded-4 shadow-sm p-4 mb-4">
-                <h5 class="fw-bold mb-4"><i class="fas fa-store text-primary me-2"></i>So Sánh Nơi Bán</h5>
-                <div class="table-responsive">
-                    <table class="table comparison-table align-middle border-light">
-                        <tbody>
-                            <?php foreach ($platforms as $index => $p): 
-                                $isCheapest = ($index == 0 && $p['current_price'] > 0);
-                                $diffFromMin = ($p['current_price'] - $cheapest);
-                                
-                                $logo = '';
-                                if ($p['platform_name'] == 'Tiki') $logo = 'https://upload.wikimedia.org/wikipedia/commons/4/43/Logo_Tiki_2023.png';
-                                if ($p['platform_name'] == 'Shopee') $logo = 'https://upload.wikimedia.org/wikipedia/commons/f/fe/Shopee.svg';
-                                if ($p['platform_name'] == 'Lazada') $logo = 'https://upload.wikimedia.org/wikipedia/commons/thumb/0/0e/Lazada_logo.svg/2560px-Lazada_logo.svg.png';
-                            ?>
-                            <tr class="<?php echo $isCheapest ? 'cheapest-row shadow-sm' : ''; ?> border-bottom">
-                                <td class="py-3 px-3 rounded-start">
-                                    <img src="<?php echo $logo; ?>" class="plat-logo">
-                                </td>
-                                <td class="py-3">
-                                    <div class="fs-5 fw-bold <?php echo $isCheapest ? 'text-danger' : 'text-dark'; ?>">
-                                        <?php echo number_format($p['current_price']); ?> ₫
-                                    </div>
-                                    <?php if($isCheapest): ?>
-                                        <span class="badge bg-danger small mt-1">Rẻ nhất</span>
+        <div class="panel summary">
+            <div class="tag-row">
+                <span class="tag hot"><i class="fas fa-fire"></i>So sánh đa sàn</span>
+                <?php if($diffAvg > 5): ?>
+                    <span class="tag good"><i class="fas fa-arrow-down"></i>Thấp hơn trung bình <?php echo (int) round($diffAvg); ?>%</span>
+                <?php endif; ?>
+            </div>
+            <h1 class="product-title"><?php echo e_detail($product['name']); ?></h1>
+            <p class="description"><?php echo e_detail($product['description'] ?? ''); ?></p>
+            <div class="metric-grid">
+                <div class="metric"><span>Giá tốt nhất</span><strong><?php echo money_detail($cheapest); ?></strong></div>
+                <div class="metric"><span>Số sàn</span><strong><?php echo count($platforms); ?></strong></div>
+                <div class="metric"><span>Trung bình</span><strong><?php echo money_detail($avgPrice); ?></strong></div>
+            </div>
+        </div>
+    </section>
+
+    <section class="content-layout">
+        <div>
+            <div class="section-card">
+                <div class="section-head">
+                    <h2 class="section-title"><i class="fas fa-store text-primary me-2"></i>So sánh nơi bán</h2>
+                    <span class="text-muted small fw-bold">Sắp xếp theo giá thấp nhất</span>
+                </div>
+                <?php if(empty($platforms)): ?>
+                    <div class="text-center text-muted py-4 fw-bold">Chưa có link sàn đang hoạt động.</div>
+                <?php else: ?>
+                    <?php foreach ($platforms as $index => $p): ?>
+                        <?php
+                        $price = (int) ($p['current_price'] ?? 0);
+                        $isBest = $index === 0 && $price > 0;
+                        $diffFromMin = ($price > 0 && $cheapest > 0) ? $price - $cheapest : 0;
+                        ?>
+                        <div class="seller-row <?php echo $isBest ? 'best' : ''; ?>">
+                            <img class="seller-logo" src="<?php echo e_detail(platform_logo($p['platform_name'])); ?>" alt="<?php echo e_detail($p['platform_name']); ?>">
+                            <div>
+                                <div class="seller-price"><?php echo money_detail($price); ?></div>
+                                <div class="seller-note">
+                                    <?php if($isBest): ?>
+                                        Rẻ nhất hiện tại
                                     <?php elseif($diffFromMin > 0): ?>
-                                        <span class="text-muted small">+<?php echo number_format($diffFromMin); ?> ₫</span>
+                                        Cao hơn <?php echo money_detail($diffFromMin); ?>
+                                    <?php else: ?>
+                                        Đang cập nhật trạng thái giá
                                     <?php endif; ?>
-                                </td>
-                                <td class="py-3 text-end rounded-end px-3">
-                                    <a href="<?php echo htmlspecialchars($p['product_url']); ?>" target="_blank" class="btn <?php echo $isCheapest ? 'btn-buy px-4' : 'btn-outline-primary'; ?> rounded-pill">
-                                        Tới Nơi Bán <i class="fas fa-chevron-right ms-1 small"></i>
-                                    </a>
-                                </td>
-                            </tr>
-                            <?php endforeach; ?>
-                        </tbody>
-                    </table>
-                </div>
+                                </div>
+                            </div>
+                            <a href="<?php echo e_detail($p['product_url']); ?>" target="_blank" class="buy-btn <?php echo $isBest ? 'best' : ''; ?>">
+                                Tới nơi bán <i class="fas fa-chevron-right"></i>
+                            </a>
+                        </div>
+                    <?php endforeach; ?>
+                <?php endif; ?>
             </div>
 
-            <div class="bg-white rounded-4 shadow-sm p-4">
-                <div class="d-flex justify-content-between align-items-center mb-4">
-                    <h5 class="fw-bold mb-0"><i class="fas fa-chart-line text-success me-2"></i>Lịch Sử Giá</h5>
-                    <div class="btn-group rounded-pill shadow-sm" role="group">
-                        <button type="button" class="btn btn-sm btn-outline-secondary active" onclick="updateChartData(7)">7 Ngày</button>
-                        <button type="button" class="btn btn-sm btn-outline-secondary" onclick="updateChartData(30)">30 Ngày</button>
+            <?php if(!empty($productSpecs)): ?>
+                <div class="section-card">
+                    <div class="section-head">
+                        <h2 class="section-title"><i class="fas fa-list-check text-primary me-2"></i>Thông tin chi tiết sản phẩm</h2>
+                        <span class="text-muted small fw-bold">Tự động lấy từ sàn</span>
+                    </div>
+                    <div class="spec-layout">
+                        <?php foreach($productSpecs as $groupName => $items): ?>
+                            <div class="spec-group">
+                                <h3 class="spec-group-title"><?php echo e_detail($groupName); ?></h3>
+                                <div class="spec-table">
+                                    <?php foreach($items as $spec): ?>
+                                        <div class="spec-row">
+                                            <div class="spec-name"><?php echo e_detail($spec['spec_name'] ?? ''); ?></div>
+                                            <div class="spec-value"><?php echo e_detail($spec['spec_value'] ?? ''); ?></div>
+                                        </div>
+                                    <?php endforeach; ?>
+                                </div>
+                            </div>
+                        <?php endforeach; ?>
                     </div>
                 </div>
-                
-                <div class="row text-center mb-4 border-bottom pb-3 g-2">
-                    <div class="col-4"><div class="text-muted small">Cao nhất</div><div class="fw-bold text-dark fs-5"><?php echo number_format($priceStats['max_price'] ?? 0); ?>đ</div></div>
-                    <div class="col-4 border-start border-end"><div class="text-muted small">Thấp nhất</div><div class="fw-bold text-danger fs-5"><?php echo number_format($priceStats['min_price'] ?? 0); ?>đ</div></div>
-                    <div class="col-4"><div class="text-muted small">Trung bình</div><div class="fw-bold text-primary fs-5"><?php echo number_format($priceStats['avg_price'] ?? 0); ?>đ</div></div>
-                </div>
+            <?php endif; ?>
 
-                <div style="height: 350px;">
-                    <canvas id="priceHistoryChart"></canvas>
+            <div class="section-card">
+                <div class="section-head">
+                    <h2 class="section-title"><i class="fas fa-chart-line text-success me-2"></i>Lịch sử giá</h2>
+                    <div class="btn-group btn-group-sm">
+                        <button type="button" class="btn btn-outline-secondary active" onclick="updateChartData(7, this)">7 ngày</button>
+                        <button type="button" class="btn btn-outline-secondary" onclick="updateChartData(30, this)">30 ngày</button>
+                        <button type="button" class="btn btn-outline-secondary" onclick="updateChartData(null, this)">Tất cả</button>
+                    </div>
                 </div>
+                <div class="stats-row">
+                    <div class="stat-pill"><span>Cao nhất</span><strong><?php echo money_detail($priceStats['max_price'] ?? 0); ?></strong></div>
+                    <div class="stat-pill"><span>Thấp nhất</span><strong class="text-danger"><?php echo money_detail($priceStats['min_price'] ?? 0); ?></strong></div>
+                    <div class="stat-pill"><span>Trung bình</span><strong class="text-primary"><?php echo money_detail($priceStats['avg_price'] ?? 0); ?></strong></div>
+                </div>
+                <div class="chart-wrap"><canvas id="priceHistoryChart"></canvas></div>
             </div>
         </div>
 
-        <div class="col-lg-4">
-            
-            <div class="bg-white rounded-4 shadow-sm p-4 border-top border-warning border-5 mb-4 position-relative overflow-hidden">
-                <div class="position-absolute top-0 end-0 opacity-10 p-3"><i class="fas fa-bell fa-6x text-warning"></i></div>
-                <h5 class="fw-bold text-dark mb-1 position-relative z-1">Săn Sale Tự Động</h5>
-                <p class="text-muted small mb-4 position-relative z-1">Nhận Email ngay khi giá giảm đến mức kỳ vọng.</p>
+        <aside>
+            <div class="panel alert-card">
+                <div class="alert-icon"><i class="fas fa-bell"></i></div>
+                <h2 class="section-title mb-2">Theo dõi giá</h2>
+                <p class="text-muted fw-semibold small">Nhận email khi sản phẩm giảm xuống mức giá bạn đặt.</p>
 
                 <?php if(isset($_SESSION['user_id'])): ?>
-                    <form action="index.php?role=user&controller=product&action=setAlert" method="POST" class="position-relative z-1">
-                        <input type="hidden" name="product_id" value="<?php echo $product['id']; ?>">
-                        
-                        <label class="fw-bold small mb-2">Nhập giá bạn muốn mua:</label>
-                        <div class="input-group mb-3 shadow-sm rounded-3">
-                            <span class="input-group-text bg-light border-0"><i class="fas fa-money-bill-wave text-success"></i></span>
-                            <input type="text" id="targetPriceInput" name="target_price" class="form-control border-0 fw-bold text-primary fs-5" 
-                                   value="<?php echo isset($userAlert) && $userAlert ? number_format($userAlert['target_price'], 0, ',', '.') : number_format($cheapest); ?>" required autocomplete="off">
-                            <span class="input-group-text bg-light border-0 fw-bold">₫</span>
+                    <form action="index.php?role=user&controller=product&action=setAlert" method="POST">
+                        <input type="hidden" name="product_id" value="<?php echo (int) $product['id']; ?>">
+                        <label class="form-label fw-bold">Giá mong muốn</label>
+                        <div class="input-group mb-3">
+                            <input type="text" id="targetPriceInput" name="target_price" class="form-control" value="<?php echo isset($userAlert) && $userAlert ? number_format((int) $userAlert['target_price'], 0, ',', '.') : number_format(max($cheapest, 0), 0, ',', '.'); ?>" required>
+                            <span class="input-group-text fw-bold">đ</span>
                         </div>
-
-                        <div class="d-flex gap-2 mb-3">
-                            <button type="button" class="btn btn-sm btn-light flex-fill fw-bold text-danger" onclick="setPresetPrice(0.95)">-5%</button>
-                            <button type="button" class="btn btn-sm btn-light flex-fill fw-bold text-danger" onclick="setPresetPrice(0.90)">-10%</button>
-                            <button type="button" class="btn btn-sm btn-light flex-fill fw-bold text-danger" onclick="setPresetPrice(0.80)">-20%</button>
+                        <div class="preset-row mb-3">
+                            <button type="button" onclick="setPresetPrice(0.95)">-5%</button>
+                            <button type="button" onclick="setPresetPrice(0.90)">-10%</button>
+                            <button type="button" onclick="setPresetPrice(0.80)">-20%</button>
                         </div>
-
-                        <div class="alert alert-success py-2 px-3 small border-0 mb-4" id="savingInsight">
-                            <i class="fas fa-piggy-bank me-2"></i>Tiết kiệm được: <b id="savingAmount">0 ₫</b>
+                        <div class="alert alert-success py-2 small fw-bold" id="savingInsight">
+                            Tiết kiệm dự kiến: <span id="savingAmount">0 đ</span>
                         </div>
-
+                        <button type="submit" class="primary-btn"><?php echo isset($userAlert) && $userAlert ? 'Cập nhật mức giá' : 'Bật theo dõi giá'; ?></button>
                         <?php if(isset($userAlert) && $userAlert): ?>
-                            <button type="submit" class="btn btn-warning w-100 fw-bold rounded-pill text-dark shadow-sm mb-2 py-2">Cập Nhật Mục Tiêu</button>
-                            <a href="index.php?role=user&controller=product&action=removeAlert&id=<?php echo $product['id']; ?>" class="btn btn-light w-100 fw-bold rounded-pill text-danger py-2">Hủy Theo Dõi</a>
-                        <?php else: ?>
-                            <button type="submit" class="btn btn-warning w-100 fw-bold rounded-pill text-dark shadow-sm py-2"><i class="fas fa-bell me-2"></i>Bật Theo Dõi Giá</button>
+                            <a class="secondary-link mt-2" href="index.php?role=user&controller=product&action=removeAlert&id=<?php echo (int) $product['id']; ?>">Hủy theo dõi</a>
                         <?php endif; ?>
                     </form>
                 <?php else: ?>
-                    <div class="text-center py-4 position-relative z-1">
-                        <i class="fas fa-lock fa-3x text-muted mb-3 opacity-50"></i>
-                        <p class="small text-muted mb-3">Đăng nhập để sử dụng tính năng theo dõi giá tự động thông minh.</p>
-                        <a href="index.php?role=user&controller=auth&action=login" class="btn btn-warning fw-bold rounded-pill w-100">Đăng Nhập Ngay</a>
-                    </div>
+                    <a href="index.php?role=user&controller=auth&action=login" class="primary-btn text-decoration-none d-flex align-items-center justify-content-center">Đăng nhập để theo dõi</a>
                 <?php endif; ?>
             </div>
-
-            <div class="bg-white rounded-4 shadow-sm p-4">
-                <h6 class="fw-bold mb-3">Tại sao chọn SmartPrice?</h6>
-                <div class="d-flex align-items-start mb-3">
-                    <i class="fas fa-bolt text-warning fs-5 me-3 mt-1"></i>
-                    <div><div class="fw-bold small">Dữ liệu Real-time</div><div class="text-muted" style="font-size: 0.8rem;">Cập nhật giá liên tục từ các hệ thống sàn TMĐT.</div></div>
-                </div>
-                <div class="d-flex align-items-start mb-3">
-                    <i class="fas fa-shield-alt text-success fs-5 me-3 mt-1"></i>
-                    <div><div class="fw-bold small">Tuyệt đối Chính xác</div><div class="text-muted" style="font-size: 0.8rem;">Loại bỏ chiêu trò tăng giá ảo của nhà bán.</div></div>
-                </div>
-            </div>
-
-        </div>
-    </div>
+        </aside>
+    </section>
 
     <?php if(!empty($relatedProducts)): ?>
-    <div class="mt-5">
-        <h4 class="fw-bold mb-4"><i class="fas fa-tags text-primary me-2"></i>Sản Phẩm Tương Tự</h4>
-        <div class="row g-4">
-            <?php foreach($relatedProducts as $rp): ?>
-            <div class="col-lg-3 col-md-4 col-sm-6">
-                <a href="index.php?role=user&controller=product&action=detail&id=<?php echo $rp['id']; ?>" class="text-decoration-none">
-                    <div class="bg-white rounded-4 shadow-sm shadow-hover p-3 h-100 border border-light">
-                        <div class="bg-light rounded-3 d-flex align-items-center justify-content-center mb-3" style="height: 150px;">
-                            <i class="fas fa-box fa-3x text-muted opacity-25"></i>
-                        </div>
-                        <h6 class="fw-bold text-dark text-truncate mb-2"><?php echo htmlspecialchars($rp['name']); ?></h6>
-                        <div class="text-danger fw-bold fs-5"><?php echo ($rp['min_price'] > 0) ? number_format($rp['min_price']).' ₫' : 'Đang cập nhật'; ?></div>
-                    </div>
-                </a>
+        <section class="section-card">
+            <div class="section-head">
+                <h2 class="section-title"><i class="fas fa-layer-group text-primary me-2"></i>Sản phẩm tương tự</h2>
             </div>
-            <?php endforeach; ?>
-        </div>
-    </div>
+            <div class="related-grid">
+                <?php foreach($relatedProducts as $rp): ?>
+                    <a href="index.php?role=user&controller=product&action=detail&id=<?php echo (int) $rp['id']; ?>" class="related-card">
+                        <div class="related-img">
+                            <?php if(!empty($rp['thumbnail_url'])): ?>
+                                <img src="<?php echo e_detail($rp['thumbnail_url']); ?>" alt="<?php echo e_detail($rp['name']); ?>">
+                            <?php else: ?>
+                                <i class="fas fa-box-open text-muted"></i>
+                            <?php endif; ?>
+                        </div>
+                        <div class="related-name"><?php echo e_detail($rp['name']); ?></div>
+                        <div class="text-danger fw-bold mt-2"><?php echo money_detail($rp['min_price'] ?? 0); ?></div>
+                    </a>
+                <?php endforeach; ?>
+            </div>
+        </section>
     <?php endif; ?>
-
-</div>
+</main>
 
 <script>
-/* --- 1. LOGIC BIỂU ĐỒ (CHART.JS NÂNG CẤP) --- */
-const rawData = <?php echo json_encode($priceHistory); ?>;
+const rawData = <?php echo json_encode($priceHistory, JSON_UNESCAPED_UNICODE); ?> || [];
 const dailyData = {};
 rawData.sort((a, b) => new Date(a.scraped_at) - new Date(b.scraped_at));
 
 rawData.forEach(item => {
-    let dateOnly = item.scraped_at.split(' ')[0]; 
-    if (!dailyData[dateOnly]) dailyData[dateOnly] = { 'Tiki': null, 'Shopee': null, 'Lazada': null };
-    dailyData[dateOnly][item.platform_name] = item.price;
+    const dateOnly = String(item.scraped_at).split(' ')[0];
+    if (!dailyData[dateOnly]) dailyData[dateOnly] = { Tiki: null, Shopee: null, Lazada: null };
+    dailyData[dateOnly][item.platform_name] = Number(item.price);
 });
 
 const rawLabels = Object.keys(dailyData);
-const displayLabels = rawLabels.map(dateStr => dateStr.split('-').reverse().slice(0,2).join('/'));
-
-const tikiData = rawLabels.map(date => dailyData[date]['Tiki']);
-const shopeeData = rawLabels.map(date => dailyData[date]['Shopee']);
-const lazadaData = rawLabels.map(date => dailyData[date]['Lazada']);
-
+const displayLabels = rawLabels.map(dateStr => dateStr.split('-').reverse().slice(0, 2).join('/'));
+const tikiData = rawLabels.map(date => dailyData[date].Tiki);
+const shopeeData = rawLabels.map(date => dailyData[date].Shopee);
+const lazadaData = rawLabels.map(date => dailyData[date].Lazada);
 let priceChart;
+
 function initChart(days = null) {
     let labels = displayLabels;
-    let d1 = tikiData, d2 = shopeeData, d3 = lazadaData;
+    let d1 = tikiData;
+    let d2 = shopeeData;
+    let d3 = lazadaData;
 
-    // Filter Logic (Giả lập cắt array dựa theo số ngày)
-    if(days) {
+    if (days) {
         labels = labels.slice(-days);
-        d1 = d1.slice(-days); d2 = d2.slice(-days); d3 = d3.slice(-days);
+        d1 = d1.slice(-days);
+        d2 = d2.slice(-days);
+        d3 = d3.slice(-days);
     }
 
-    const ctx = document.getElementById('priceHistoryChart').getContext('2d');
-    if(priceChart) priceChart.destroy(); // Hủy chart cũ trước khi vẽ lại
-    
+    const ctx = document.getElementById('priceHistoryChart');
+    if (!ctx) return;
+    if (priceChart) priceChart.destroy();
+
     priceChart = new Chart(ctx, {
         type: 'line',
         data: {
-            labels: labels,
+            labels,
             datasets: [
-                { label: 'Tiki', data: d1, borderColor: '#189eff', backgroundColor: 'rgba(24, 158, 255, 0.1)', fill: true, tension: 0.4, borderWidth: 3, pointBackgroundColor: '#fff' },
-                { label: 'Shopee', data: d2, borderColor: '#ee4d2d', backgroundColor: 'rgba(238, 77, 45, 0.1)', fill: true, tension: 0.4, borderWidth: 3, pointBackgroundColor: '#fff' },
-                { label: 'Lazada', data: d3, borderColor: '#00008b', backgroundColor: 'rgba(0, 0, 139, 0.1)', fill: true, tension: 0.4, borderWidth: 3, pointBackgroundColor: '#fff' }
+                { label: 'Tiki', data: d1, borderColor: '#189eff', backgroundColor: 'rgba(24,158,255,.08)', fill: true, tension: .35, borderWidth: 3 },
+                { label: 'Shopee', data: d2, borderColor: '#ee4d2d', backgroundColor: 'rgba(238,77,45,.08)', fill: true, tension: .35, borderWidth: 3 },
+                { label: 'Lazada', data: d3, borderColor: '#0b1f8a', backgroundColor: 'rgba(11,31,138,.08)', fill: true, tension: .35, borderWidth: 3 }
             ]
         },
         options: {
-            responsive: true, maintainAspectRatio: false,
-            interaction: { mode: 'index', intersect: false }, // Tooltip Upgrade: Hover ở bất cứ đâu trên trục dọc cũng hiện info
+            responsive: true,
+            maintainAspectRatio: false,
+            interaction: { mode: 'index', intersect: false },
             plugins: {
-                tooltip: {
-                    backgroundColor: 'rgba(0,0,0,0.8)', padding: 12, titleFont: { size: 14 }, bodyFont: { size: 13 },
-                    callbacks: { label: (ctx) => ` ${ctx.dataset.label}: ${new Intl.NumberFormat('vi-VN').format(ctx.parsed.y)} ₫` }
-                },
-                legend: { position: 'bottom', labels: { usePointStyle: true, boxWidth: 8 } }
+                legend: { position: 'bottom', labels: { usePointStyle: true, boxWidth: 8 } },
+                tooltip: { callbacks: { label: ctx => ` ${ctx.dataset.label}: ${Number(ctx.parsed.y || 0).toLocaleString('vi-VN')} đ` } }
             },
             scales: {
-                y: { grid: { borderDash: [5, 5] }, ticks: { callback: val => new Intl.NumberFormat('vi-VN').format(val) + ' ₫' } },
-                x: { grid: { display: false } }
+                x: { grid: { display: false } },
+                y: { ticks: { callback: value => Number(value).toLocaleString('vi-VN') + ' đ' } }
             }
         }
     });
 }
-initChart(); // Vẽ lần đầu
 
-function updateChartData(days) {
-    // Chuyển UI button active
+function updateChartData(days, button) {
     document.querySelectorAll('.btn-group .btn').forEach(btn => btn.classList.remove('active'));
-    event.target.classList.add('active');
+    if (button) button.classList.add('active');
     initChart(days);
 }
 
-/* --- 2. LOGIC ALERT (TÍNH TOÁN TIẾT KIỆM) --- */
-const cheapestPrice = <?php echo $cheapest; ?>;
+initChart(7);
+
+const cheapestPrice = <?php echo (int) $cheapest; ?>;
 const priceInput = document.getElementById('targetPriceInput');
 const savingText = document.getElementById('savingAmount');
 
-function formatCurrency(num) { return parseInt(num, 10).toLocaleString('vi-VN').replace(/,/g, '.'); }
+function formatCurrency(num) {
+    return parseInt(num || 0, 10).toLocaleString('vi-VN').replace(/,/g, '.');
+}
 
 function calculateSaving() {
-    let target = parseInt(priceInput.value.replace(/[^0-9]/g, '')) || 0;
-    if(target < cheapestPrice && target > 0) {
-        savingText.innerText = formatCurrency(cheapestPrice - target) + ' ₫';
-        savingText.classList.replace('text-danger', 'text-success');
-    } else {
-        savingText.innerText = "0 ₫ (Chọn giá thấp hơn)";
-        savingText.classList.replace('text-success', 'text-danger');
-    }
+    if (!priceInput || !savingText) return;
+    const target = parseInt(priceInput.value.replace(/[^0-9]/g, ''), 10) || 0;
+    const saved = cheapestPrice > target && target > 0 ? cheapestPrice - target : 0;
+    savingText.textContent = formatCurrency(saved) + ' đ';
 }
 
-// Lắng nghe sự kiện gõ phím
+function setPresetPrice(multiplier) {
+    if (!priceInput || cheapestPrice <= 0) return;
+    priceInput.value = formatCurrency(Math.floor(cheapestPrice * multiplier));
+    calculateSaving();
+}
+
 if (priceInput) {
-    priceInput.addEventListener('input', function(e) {
-        let val = this.value.replace(/[^0-9]/g, '');
-        if (val !== '') this.value = formatCurrency(val);
+    priceInput.addEventListener('input', function() {
+        const val = this.value.replace(/[^0-9]/g, '');
+        this.value = val ? formatCurrency(val) : '';
         calculateSaving();
     });
-    calculateSaving(); // Chạy lần đầu
-}
-
-// Preset nhanh
-function setPresetPrice(multiplier) {
-    let newPrice = Math.floor(cheapestPrice * multiplier);
-    priceInput.value = formatCurrency(newPrice);
     calculateSaving();
 }
 </script>
-
 <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
 </body>
 </html>

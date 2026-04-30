@@ -23,9 +23,12 @@ class ProductModel {
     // Bổ sung hàm lấy 6 sản phẩm Hot trực tiếp từ DB (Tối ưu hiệu suất)
     public function getTrendingProducts() {
         $sql = "SELECT p.*, 
+                c.name as category_name,
                 (SELECT COUNT(*) FROM platform_links WHERE product_id = p.id AND is_active = 1) as total_active_links,
-                (SELECT MAX(last_scraped_at) FROM platform_links WHERE product_id = p.id) as last_update
+                (SELECT MAX(last_scraped_at) FROM platform_links WHERE product_id = p.id) as last_update,
+                (SELECT MIN(current_price) FROM platform_links WHERE product_id = p.id AND is_active = 1 AND current_price > 0) as min_price
                 FROM products p 
+                LEFT JOIN categories c ON p.category_id = c.id
                 ORDER BY p.id DESC 
                 LIMIT 6";
         $result = $this->conn->query($sql);
@@ -125,6 +128,46 @@ class ProductModel {
         $stmt->bind_param("i", $productId);
         $stmt->execute();
         return $stmt->get_result()->fetch_all(MYSQLI_ASSOC);
+    }
+
+    public function getProductSpecifications($productId) {
+        $tableCheck = $this->conn->query("SHOW TABLES LIKE 'product_specifications'");
+        if (!$tableCheck || $tableCheck->num_rows === 0) {
+            return [];
+        }
+
+        $sql = "SELECT group_name, spec_name, spec_value, source_platform
+                FROM product_specifications
+                WHERE product_id = ?
+                ORDER BY display_order ASC, id ASC";
+        $stmt = $this->conn->prepare($sql);
+
+        if (!$stmt) {
+            return [];
+        }
+
+        $stmt->bind_param("i", $productId);
+        if (!$stmt->execute()) {
+            return [];
+        }
+
+        $rows = $stmt->get_result()->fetch_all(MYSQLI_ASSOC);
+        $groups = [];
+
+        foreach ($rows as $row) {
+            $groupName = trim((string) ($row['group_name'] ?? ''));
+            if ($groupName === '') {
+                $groupName = 'Thông tin sản phẩm';
+            }
+
+            if (!isset($groups[$groupName])) {
+                $groups[$groupName] = [];
+            }
+
+            $groups[$groupName][] = $row;
+        }
+
+        return $groups;
     }
 
     // 6. Thêm sản phẩm mới vào bảng products

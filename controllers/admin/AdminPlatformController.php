@@ -26,8 +26,11 @@ class AdminPlatformController {
         $product_id = isset($_GET['product_id']) ? intval($_GET['product_id']) : 0;
         
         if ($product_id === 0) {
-            header("Location: index.php?role=admin&controller=adminProduct&action=index");
-            exit();
+            $products = $this->productModel->getAllProductsWithStats();
+            $platformStats = $this->getPlatformStats();
+            $productPlatformMap = $this->getProductPlatformMap();
+            require_once 'views/admin/platforms_overview.php';
+            return;
         }
 
         // Lấy tên sản phẩm để hiển thị trên tiêu đề
@@ -39,6 +42,49 @@ class AdminPlatformController {
         $links = $stmt->get_result()->fetch_all(MYSQLI_ASSOC);
 
         require_once 'views/admin/platforms.php';
+    }
+
+    private function getPlatformStats() {
+        $sql = "SELECT platform_name,
+                       COUNT(*) as total_links,
+                       SUM(CASE WHEN is_active = 1 THEN 1 ELSE 0 END) as active_links,
+                       MAX(last_scraped_at) as last_scraped_at
+                FROM platform_links
+                GROUP BY platform_name";
+        $result = $this->db->query($sql);
+
+        $stats = [
+            'Tiki' => ['total_links' => 0, 'active_links' => 0, 'last_scraped_at' => null],
+            'Shopee' => ['total_links' => 0, 'active_links' => 0, 'last_scraped_at' => null],
+            'Lazada' => ['total_links' => 0, 'active_links' => 0, 'last_scraped_at' => null],
+        ];
+
+        if ($result) {
+            while ($row = $result->fetch_assoc()) {
+                $stats[$row['platform_name']] = $row;
+            }
+        }
+
+        return $stats;
+    }
+
+    private function getProductPlatformMap() {
+        $sql = "SELECT product_id,
+                       MAX(CASE WHEN platform_name = 'Tiki' THEN is_active ELSE NULL END) as tiki_active,
+                       MAX(CASE WHEN platform_name = 'Shopee' THEN is_active ELSE NULL END) as shopee_active,
+                       MAX(CASE WHEN platform_name = 'Lazada' THEN is_active ELSE NULL END) as lazada_active
+                FROM platform_links
+                GROUP BY product_id";
+        $result = $this->db->query($sql);
+        $map = [];
+
+        if ($result) {
+            while ($row = $result->fetch_assoc()) {
+                $map[(int) $row['product_id']] = $row;
+            }
+        }
+
+        return $map;
     }
 
     // Xử lý Thêm Link (Hàm addPlatformLink của bạn dùng cơ chế Upsert rất hay)

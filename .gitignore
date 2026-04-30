@@ -12,5 +12,8 @@ __pycache__/
 *.tmp
 storage/sessions/*
 !storage/sessions/.gitkeep
+storage/bot_debug/*
+storage/bot_logs/*
+storage/bot_locks/*
 .vscode/
 .idea/

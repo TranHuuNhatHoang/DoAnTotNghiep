@@ -1,13 +1,60 @@
 import re
 import sys
+import time
 from datetime import datetime
+from html import unescape
 
 import mysql.connector
 import requests
 
-from app_config import get_db_config
+from app_config import get_db_config, load_env
+from bot_lock import FileLock
 
-sys.stdout.reconfigure(encoding="utf-8")
+
+try:
+    sys.stdout.reconfigure(encoding="utf-8")
+except AttributeError:
+    pass
+
+
+load_env()
+
+STATUS_SUCCESS = 1
+STATUS_NO_PRICE = 2
+STATUS_ERROR = 3
+EXIT_OK = 0
+EXIT_FATAL = 1
+
+
+def env_int(name, default, minimum=None, maximum=None):
+    import os
+
+    try:
+        value = int(os.getenv(name, str(default)))
+    except (TypeError, ValueError):
+        value = default
+    if minimum is not None:
+        value = max(minimum, value)
+    if maximum is not None:
+        value = min(maximum, value)
+    return value
+
+
+TIKI_BATCH_LIMIT = env_int("TIKI_BATCH_LIMIT", 0, minimum=0)
+TIKI_REQUEST_TIMEOUT = env_int("TIKI_REQUEST_TIMEOUT", 12, minimum=3, maximum=60)
+TIKI_RETRY_COUNT = env_int("TIKI_RETRY_COUNT", 2, minimum=0, maximum=5)
+TIKI_LOCK_STALE_MINUTES = env_int("TIKI_LOCK_STALE_MINUTES", 60, minimum=10)
+
+
+def log(message):
+    print(message, flush=True)
+
+
+def format_vn_number(value):
+    try:
+        return f"{int(value):,}".replace(",", ".")
+    except (TypeError, ValueError):
+        return str(value)
 
 
 def extract_tiki_ids(url):
@@ -46,44 +93,239 @@ def extract_thumbnail_url(product_data):
     return None
 
 
-def scrape_tiki_data(product_url):
-    print(f"[*] Dang xu ly link: {product_url}")
-    product_id, spid = extract_tiki_ids(product_url)
+def clean_text(value):
+    if isinstance(value, (list, tuple)):
+        parts = [clean_text(item) for item in value]
+        return ", ".join(part for part in parts if part)
+    if isinstance(value, dict):
+        value = value.get("value") or value.get("name") or value.get("text") or ""
 
+    text = unescape(str(value or ""))
+    text = re.sub(r"<[^>]+>", " ", text)
+    return re.sub(r"\s+", " ", text).strip()
+
+
+def extract_specifications(product_data):
+    specifications = []
+    display_order = 0
+
+    for group in product_data.get("specifications", []) or []:
+        group_name = clean_text(group.get("name")) or "Thông tin sản phẩm"
+        for attribute in group.get("attributes", []) or []:
+            spec_name = clean_text(attribute.get("name") or attribute.get("label"))
+            spec_value = clean_text(attribute.get("value"))
+
+            if not spec_name or not spec_value:
+                continue
+
+            display_order += 1
+            specifications.append(
+                {
+                    "group_name": group_name,
+                    "spec_name": spec_name,
+                    "spec_value": spec_value,
+                    "display_order": display_order,
+                }
+            )
+
+    return specifications
+
+
+def build_tiki_api_url(product_url):
+    product_id, spid = extract_tiki_ids(product_url)
     if not product_id:
-        print("[!] Khong the trich xuat Product ID tu link Tiki.")
         return None
 
     api_url = f"https://tiki.vn/api/v2/products/{product_id}?platform=web&version=3"
     if spid:
         api_url += f"&spid={spid}"
+    return api_url
 
+
+def request_tiki_api(api_url):
     headers = {
-        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
-        "AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
+        "User-Agent": (
+            "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
+            "AppleWebKit/537.36 (KHTML, like Gecko) "
+            "Chrome/120.0.0.0 Safari/537.36"
+        ),
+        "Accept": "application/json, text/plain, */*",
+        "Referer": "https://tiki.vn/",
     }
 
-    try:
-        response = requests.get(api_url, headers=headers, timeout=10)
-        if response.status_code != 200:
-            print(f"[!] Loi HTTP: {response.status_code}")
-            return {"status": 2}
+    last_error = None
+    for attempt in range(1, TIKI_RETRY_COUNT + 2):
+        try:
+            response = requests.get(api_url, headers=headers, timeout=TIKI_REQUEST_TIMEOUT)
+            if response.status_code == 200:
+                return response.json(), None
+            if response.status_code in {404, 410}:
+                return None, {"status": STATUS_NO_PRICE, "message": f"HTTP {response.status_code}"}
+            last_error = f"HTTP {response.status_code}"
+        except requests.exceptions.RequestException as exc:
+            last_error = str(exc)
 
-        data = response.json()
-        print("[+] Cao thanh cong!")
-        return {
-            "name": data.get("name"),
-            "thumbnail_url": extract_thumbnail_url(data),
-            "current_price": data.get("price"),
-            "original_price": data.get("original_price"),
-            "historical_sold": data.get("quantity_sold", {}).get("value", 0),
-            "rating_average": data.get("rating_average", 0),
-            "review_count": data.get("review_count", 0),
-            "status": 1,
-        }
-    except requests.exceptions.RequestException as exc:
-        print(f"[!] Loi ket noi: {exc}")
-        return {"status": 3}
+        if attempt <= TIKI_RETRY_COUNT:
+            log(f"  [thử lại] Tiki chưa phản hồi ổn định ({last_error}). Thử lại lần {attempt}/{TIKI_RETRY_COUNT}.")
+            time.sleep(1.2 * attempt)
+
+    return None, {"status": STATUS_ERROR, "message": last_error or "Không rõ lỗi"}
+
+
+def scrape_tiki_data(product_url):
+    log(f"[Tiki] Đang xử lý link: {product_url}")
+    api_url = build_tiki_api_url(product_url)
+    if not api_url:
+        log("  [lỗi] Không trích xuất được Product ID từ link Tiki.")
+        return {"status": STATUS_ERROR}
+
+    data, error = request_tiki_api(api_url)
+    if error:
+        log(f"  [lỗi] Không lấy được dữ liệu Tiki: {error['message']}")
+        return {"status": error["status"]}
+
+    current_price = data.get("price") or 0
+    if current_price <= 0:
+        log("  [bỏ qua] API Tiki không trả về giá hợp lệ.")
+        return {"status": STATUS_NO_PRICE}
+
+    result = {
+        "name": data.get("name"),
+        "thumbnail_url": extract_thumbnail_url(data),
+        "current_price": current_price,
+        "original_price": data.get("original_price"),
+        "historical_sold": data.get("quantity_sold", {}).get("value", 0),
+        "rating_average": data.get("rating_average", 0),
+        "review_count": data.get("review_count", 0),
+        "specifications": extract_specifications(data),
+        "status": STATUS_SUCCESS,
+    }
+
+    log(f"  [thành công] Giá hiện tại: {format_vn_number(current_price)} đ")
+    if result["thumbnail_url"]:
+        log("  [thành công] Đã lấy được link ảnh sản phẩm.")
+    if result["specifications"]:
+        log(f"  [thành công] Đã lấy được {len(result['specifications'])} dòng thông số sản phẩm.")
+    return result
+
+
+def fetch_tiki_links(cursor):
+    sql = (
+        "SELECT id, product_id, product_url FROM platform_links "
+        "WHERE platform_name = 'Tiki' AND is_active = 1 "
+        "ORDER BY last_scraped_at ASC"
+    )
+    if TIKI_BATCH_LIMIT > 0:
+        sql += f" LIMIT {TIKI_BATCH_LIMIT}"
+    cursor.execute(sql)
+    return cursor.fetchall()
+
+
+def ensure_product_specifications_table(cursor):
+    cursor.execute(
+        """
+        CREATE TABLE IF NOT EXISTS product_specifications (
+          id INT AUTO_INCREMENT PRIMARY KEY,
+          product_id INT NOT NULL,
+          group_name VARCHAR(255) NOT NULL DEFAULT 'Thông tin sản phẩm',
+          spec_name VARCHAR(255) NOT NULL,
+          spec_value TEXT NOT NULL,
+          display_order INT NOT NULL DEFAULT 0,
+          source_platform ENUM('Tiki', 'Shopee', 'Lazada', 'Manual') NOT NULL DEFAULT 'Manual',
+          created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+          KEY idx_product_specs_product_order (product_id, display_order, id),
+          KEY idx_product_specs_name (spec_name),
+          CONSTRAINT fk_product_specs_product
+            FOREIGN KEY (product_id) REFERENCES products(id)
+            ON DELETE CASCADE
+        ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
+        """
+    )
+
+
+def save_product_specifications(cursor, product_id, specifications):
+    if not specifications:
+        return 0
+
+    cursor.execute(
+        "DELETE FROM product_specifications WHERE product_id = %s AND source_platform = %s",
+        (product_id, "Tiki"),
+    )
+    cursor.executemany(
+        """
+        INSERT INTO product_specifications
+            (product_id, group_name, spec_name, spec_value, display_order, source_platform)
+        VALUES (%s, %s, %s, %s, %s, %s)
+        """,
+        [
+            (
+                product_id,
+                item["group_name"],
+                item["spec_name"],
+                item["spec_value"],
+                item["display_order"],
+                "Tiki",
+            )
+            for item in specifications
+        ],
+    )
+    return len(specifications)
+
+
+def save_tiki_data(cursor, conn, link, data):
+    now = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+    link_id = link["id"]
+    product_id = link["product_id"]
+
+    cursor.execute(
+        """
+        UPDATE platform_links
+        SET current_price = %s,
+            original_price = %s,
+            historical_sold = %s,
+            rating_average = %s,
+            review_count = %s,
+            status = %s,
+            last_scraped_at = %s
+        WHERE id = %s
+        """,
+        (
+            data["current_price"],
+            data["original_price"],
+            data["historical_sold"],
+            data["rating_average"],
+            data["review_count"],
+            data["status"],
+            now,
+            link_id,
+        ),
+    )
+    cursor.execute(
+        "INSERT INTO price_history (link_id, price, scraped_at) VALUES (%s, %s, %s)",
+        (link_id, data["current_price"], now),
+    )
+
+    if data.get("thumbnail_url"):
+        cursor.execute(
+            "UPDATE products SET thumbnail_url = %s WHERE id = %s",
+            (data["thumbnail_url"], product_id),
+        )
+        log(f"  [thành công] Đã cập nhật thumbnail_url cho product ID={product_id}.")
+
+    saved_specs = save_product_specifications(cursor, product_id, data.get("specifications") or [])
+    if saved_specs:
+        log(f"  [thành công] Đã lưu {saved_specs} dòng thông số sản phẩm.")
+
+    conn.commit()
+
+
+def update_status(cursor, conn, link_id, status):
+    now = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+    cursor.execute(
+        "UPDATE platform_links SET status = %s, last_scraped_at = %s WHERE id = %s",
+        (status, now, link_id),
+    )
+    conn.commit()
 
 
 def update_tiki_prices_to_db():
@@ -91,77 +333,62 @@ def update_tiki_prices_to_db():
     cursor = None
 
     try:
-        print("[*] Dang ket noi Database...")
+        log("Bắt đầu chạy bot Tiki")
+        log(
+            "Cấu hình: "
+            f"số link mỗi lượt={'tất cả' if TIKI_BATCH_LIMIT == 0 else TIKI_BATCH_LIMIT}, "
+            f"timeout={TIKI_REQUEST_TIMEOUT} giây, số lần thử lại={TIKI_RETRY_COUNT}"
+        )
+
         conn = mysql.connector.connect(**get_db_config())
         cursor = conn.cursor(dictionary=True)
-        print("[+] Ket noi Database thanh cong!\n")
-
-        cursor.execute(
-            "SELECT id, product_id, product_url FROM platform_links "
-            "WHERE platform_name = 'Tiki' AND is_active = 1"
-        )
-        tiki_links = cursor.fetchall()
-        print(f"[*] Tim thay {len(tiki_links)} link Tiki can cap nhat.")
-
-        for link in tiki_links:
-            link_id = link["id"]
-            product_id = link["product_id"]
-            data = scrape_tiki_data(link["product_url"])
-            now = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-
-            if data and data.get("status") == 1:
-                cursor.execute(
-                    """
-                    UPDATE platform_links
-                    SET current_price = %s, original_price = %s, historical_sold = %s,
-                        rating_average = %s, review_count = %s, status = %s, last_scraped_at = %s
-                    WHERE id = %s
-                    """,
-                    (
-                        data["current_price"],
-                        data["original_price"],
-                        data["historical_sold"],
-                        data["rating_average"],
-                        data["review_count"],
-                        data["status"],
-                        now,
-                        link_id,
-                    ),
-                )
-                cursor.execute(
-                    "INSERT INTO price_history (link_id, price, scraped_at) VALUES (%s, %s, %s)",
-                    (link_id, data["current_price"], now),
-                )
-
-                if data.get("thumbnail_url"):
-                    cursor.execute(
-                        "UPDATE products SET thumbnail_url = %s WHERE id = %s",
-                        (data["thumbnail_url"], product_id),
-                    )
-                    print(f"[+] Da cap nhat thumbnail_url cho product ID: {product_id}")
-
-                print(f"[+] Da cap nhat link ID: {link_id}\n")
-            else:
-                status = data.get("status", 3) if data else 3
-                cursor.execute(
-                    "UPDATE platform_links SET status = %s, last_scraped_at = %s WHERE id = %s",
-                    (status, now, link_id),
-                )
-                print(f"[!] Bo qua link ID: {link_id} do loi cao du lieu.\n")
-
+        ensure_product_specifications_table(cursor)
         conn.commit()
-        print("[+] Da luu toan bo thay doi vao Database!")
+        tiki_links = fetch_tiki_links(cursor)
+
+        log(f"Tìm thấy {len(tiki_links)} link Tiki cần cập nhật.")
+        if not tiki_links:
+            return EXIT_OK
+
+        for index, link in enumerate(tiki_links, start=1):
+            log("-" * 60)
+            log(f"[{index}/{len(tiki_links)}] Đang quét link Tiki ID={link['id']}")
+            try:
+                data = scrape_tiki_data(link["product_url"])
+                if data and data.get("status") == STATUS_SUCCESS:
+                    save_tiki_data(cursor, conn, link, data)
+                    log("  [thành công] Đã lưu dữ liệu Tiki vào database.")
+                else:
+                    status = data.get("status", STATUS_ERROR) if data else STATUS_ERROR
+                    update_status(cursor, conn, link["id"], status)
+                    log(f"  [bỏ qua] Không cập nhật được link ID={link['id']}. Trạng thái={status}.")
+            except Exception as exc:
+                update_status(cursor, conn, link["id"], STATUS_ERROR)
+                log(f"  [lỗi] Lỗi khi xử lý link ID={link['id']}: {exc}")
+
+        log("Bot Tiki đã hoàn tất lượt cập nhật.")
+        return EXIT_OK
     except mysql.connector.Error as err:
-        print(f"[!] Loi MySQL: {err}")
+        log(f"[lỗi nghiêm trọng] Lỗi MySQL: {err}")
+        return EXIT_FATAL
+    except Exception as exc:
+        log(f"[lỗi nghiêm trọng] Bot Tiki bị lỗi: {exc}")
+        return EXIT_FATAL
     finally:
         if cursor:
             cursor.close()
         if conn and conn.is_connected():
             conn.close()
-            print("[*] Da dong ket noi Database.")
+            log("Đã đóng kết nối database.")
+
+
+def run_with_lock():
+    with FileLock("tiki_crawler", stale_after_minutes=TIKI_LOCK_STALE_MINUTES) as acquired:
+        if not acquired:
+            log("[bỏ qua] Bot Tiki đang chạy ở tiến trình khác, bỏ qua lượt này.")
+            return EXIT_OK
+        return update_tiki_prices_to_db()
 
 
 if __name__ == "__main__":
-    print("=== BAT DAU CAP NHAT GIA TIKI ===")
-    update_tiki_prices_to_db()
-    print("=== KET THUC CHUONG TRINH ===")
+    sys.exit(run_with_lock())

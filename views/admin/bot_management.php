@@ -1,66 +1,173 @@
-<?php 
-// PHẢI ĐẶT SESSION START Ở DÒNG SỐ 1, TRƯỚC KHI CÓ BẤT KỲ MÃ HTML NÀO
-if (session_status() === PHP_SESSION_NONE) { 
-    session_start(); 
-} 
+<?php
+if (session_status() === PHP_SESSION_NONE) {
+    session_start();
+}
+
+$botStats = $botStats ?? [];
+$lastRunByPlatform = [];
+foreach ($botStats as $stat) {
+    $lastRunByPlatform[$stat['platform_name']] = $stat['last_run'] ?? null;
+}
+
+function e_admin_bot($value) {
+    return htmlspecialchars((string) $value, ENT_QUOTES, 'UTF-8');
+}
+
+function bot_last_run($value) {
+    return !empty($value) ? date('H:i d/m/Y', strtotime($value)) : 'Chưa có dữ liệu';
+}
+
+$bots = [
+    [
+        'type' => 'tiki',
+        'name' => 'Tiki Scraper',
+        'platform' => 'Tiki',
+        'desc' => 'Lấy giá, URL ảnh và trạng thái sản phẩm qua API Tiki.',
+        'logo' => 'https://upload.wikimedia.org/wikipedia/commons/4/43/Logo_Tiki_2023.png',
+        'tone' => 'tiki',
+        'icon' => 'fa-cloud-arrow-down',
+    ],
+    [
+        'type' => 'shopee',
+        'name' => 'Shopee Crawler',
+        'platform' => 'Shopee',
+        'desc' => 'Cập nhật giá từ link Shopee đang hoạt động trong hệ thống.',
+        'logo' => 'https://upload.wikimedia.org/wikipedia/commons/f/fe/Shopee.svg',
+        'tone' => 'shopee',
+        'icon' => 'fa-cart-shopping',
+    ],
+    [
+        'type' => 'lazada',
+        'name' => 'Lazada Crawler',
+        'platform' => 'Lazada',
+        'desc' => 'Quét giá Lazada và lưu lại lịch sử biến động theo thời gian.',
+        'logo' => 'https://upload.wikimedia.org/wikipedia/commons/thumb/0/0e/Lazada_logo.svg/2560px-Lazada_logo.svg.png',
+        'tone' => 'lazada',
+        'icon' => 'fa-tags',
+    ],
+    [
+        'type' => 'matcher',
+        'name' => 'Fuzzy Matcher',
+        'platform' => null,
+        'desc' => 'Tìm link tương ứng trên nhiều sàn dựa theo tên sản phẩm đã có.',
+        'logo' => '',
+        'tone' => 'matcher',
+        'icon' => 'fa-wand-magic-sparkles',
+    ],
+];
 ?>
 <!DOCTYPE html>
 <html lang="vi">
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Quản lý Bot - Admin Panel</title>
+    <title>Quản lý bot - Admin Panel</title>
     <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css">
     <style>
-        :root { --sidebar-width: 260px; }
-        body { background-color: #f4f7f6; font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; }
-        
-        /* Cấu hình CSS cho Sidebar (Kế thừa cho file include) */
-        .sidebar { width: var(--sidebar-width); height: 100vh; position: fixed; background: #2c3e50; color: white; z-index: 1000; }
-        .sidebar-header { padding: 20px; text-align: center; background: #1a252f; }
-        .nav-link { color: #bdc3c7; padding: 12px 20px; border-radius: 8px; transition: 0.3s; margin: 5px 15px; }
-        .nav-link:hover { color: white; background: #34495e; }
-        .nav-link.active { color: white; background: #3498db; box-shadow: 0 4px 10px rgba(52, 152, 219, 0.3); }
-        .main-content { margin-left: var(--sidebar-width); padding: 30px; }
-
-        /* Bot Cards */
-        .bot-card { border: none; border-radius: 15px; transition: 0.3s; overflow: hidden; }
-        .bot-card:hover { transform: translateY(-5px); box-shadow: 0 10px 20px rgba(0,0,0,0.1); }
-        
-        /* Terminal Styling */
-        .terminal-box { 
-            background: #1e1e1e; 
-            color: #00ff00; 
-            padding: 20px; 
-            border-radius: 0 0 12px 12px; 
-            font-family: 'Consolas', 'Monaco', monospace; 
-            font-size: 0.85rem; 
-            max-height: 350px; 
-            overflow-y: auto;
-            border: 1px solid #333;
-            border-top: none;
-            box-shadow: inset 0 0 10px #000;
+        .bot-grid {
+            display: grid;
+            grid-template-columns: repeat(4, minmax(0, 1fr));
+            gap: 16px;
         }
-        .terminal-header {
-            color: #fff;
-            padding: 8px 15px;
-            border-radius: 12px 12px 0 0;
-            font-size: 0.75rem;
+
+        .bot-card {
+            overflow: hidden;
+            display: flex;
+            flex-direction: column;
+            min-height: 100%;
+        }
+
+        .bot-card-top {
+            height: 6px;
+            background: #64748b;
+        }
+
+        .bot-card-top.tiki { background: #1a94ff; }
+        .bot-card-top.shopee { background: #ee4d2d; }
+        .bot-card-top.lazada { background: #1a237e; }
+        .bot-card-top.matcher { background: #111827; }
+
+        .bot-logo-wrap {
+            width: 68px;
+            height: 68px;
+            border-radius: 12px;
+            border: 1px solid #e4e7ec;
+            display: grid;
+            place-items: center;
+            background: #fff;
+            margin-bottom: 16px;
+        }
+
+        .bot-logo-wrap img {
+            max-width: 50px;
+            max-height: 34px;
+            object-fit: contain;
+        }
+
+        .bot-logo-wrap i {
+            color: #111827;
+            font-size: 1.6rem;
+        }
+
+        .terminal-panel {
+            background: #0f172a;
+            color: #d1fae5;
+            border-radius: 8px;
+            overflow: hidden;
+            border: 1px solid #1e293b;
+            box-shadow: 0 18px 32px rgba(15,23,42,.16);
+            margin-bottom: 20px;
+        }
+
+        .terminal-head {
             display: flex;
             justify-content: space-between;
+            align-items: center;
+            gap: 12px;
+            padding: 12px 16px;
+            background: #111827;
+            border-bottom: 1px solid #1f2937;
+            color: #fff;
+            font-weight: 800;
         }
-        
-        /* Các class CSS thêm cho tính năng Báo động Đỏ/Xanh */
-        .box-shadow-danger { 
-            box-shadow: 0 0 15px rgba(220, 53, 69, 0.5) !important; 
-            border: 2px solid #dc3545 !important; 
-            border-top: none !important;
+
+        .terminal-body {
+            max-height: 360px;
+            overflow: auto;
+            padding: 16px;
+            font-family: Consolas, Monaco, monospace;
+            font-size: .88rem;
         }
-        .border-success { 
-            border: 2px solid #28a745 !important; 
-            border-top: none !important;
-            box-shadow: 0 0 15px rgba(40, 167, 69, 0.3) !important; 
+
+        .terminal-body pre {
+            white-space: pre-wrap;
+            margin-bottom: 0;
+            color: inherit;
+        }
+
+        .guide-grid {
+            display: grid;
+            grid-template-columns: repeat(3, minmax(0, 1fr));
+            gap: 14px;
+        }
+
+        .guide-item {
+            padding: 16px;
+            border: 1px solid #e4e7ec;
+            border-radius: 8px;
+            background: #fff;
+        }
+
+        @media (max-width: 1199px) {
+            .bot-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+        }
+
+        @media (max-width: 767px) {
+            .bot-grid,
+            .guide-grid {
+                grid-template-columns: 1fr;
+            }
         }
     </style>
 </head>
@@ -68,142 +175,98 @@ if (session_status() === PHP_SESSION_NONE) {
 
 <?php include 'sidebar.php'; ?>
 
-<div class="main-content">
+<main class="main-content">
     <div class="container-fluid">
-        <div class="mb-4">
-            <h2 class="fw-bold">Trung Tâm Điều Khiển Bot</h2>
-            <p class="text-muted">Kích hoạt các kịch bản Python Crawler để cập nhật dữ liệu thời gian thực.</p>
+        <div class="admin-page-head">
+            <div>
+                <div class="admin-page-kicker">Automation</div>
+                <h1 class="admin-page-title">Trung tâm điều khiển bot</h1>
+                <p class="admin-page-desc">Chạy crawler, cập nhật giá và kiểm tra đầu ra của các script Python.</p>
+            </div>
         </div>
 
-        <?php 
-        if (isset($_SESSION['bot_message'])): 
-            $status_class = '';
-            $header_class = 'bg-dark'; // Màu mặc định
-            
-            // Đổi màu Terminal dựa trên Exit Code của Python
-            if (isset($_SESSION['bot_status'])) {
-                if ($_SESSION['bot_status'] == 'error') {
-                    $status_class = 'border-danger box-shadow-danger';
-                    $header_class = 'bg-danger';
-                }
-                if ($_SESSION['bot_status'] == 'success') {
-                    $status_class = 'border-success';
-                }
-            }
+        <?php if (isset($_SESSION['bot_message'])):
+            $status = $_SESSION['bot_status'] ?? 'info';
+            $statusText = [
+                'success' => 'Hoàn tất',
+                'error' => 'Có lỗi',
+                'warning' => 'Cần kiểm tra',
+                'info' => 'Thông tin',
+            ][$status] ?? 'Thông tin';
         ?>
-            <div class="mb-5">
-                <div class="terminal-header <?php echo $header_class; ?>">
-                    <span><i class="fas fa-terminal me-2"></i> Hệ thống phản hồi: Last Execution Output</span>
-                    <span><i class="fas fa-circle text-danger me-1"></i> <i class="fas fa-circle text-warning me-1"></i> <i class="fas fa-circle text-success"></i></span>
+            <section class="terminal-panel">
+                <div class="terminal-head">
+                    <span><i class="fas fa-terminal me-2"></i>Kết quả chạy gần nhất</span>
+                    <span class="badge rounded-pill text-bg-<?php echo $status === 'error' ? 'danger' : ($status === 'success' ? 'success' : 'warning'); ?>">
+                        <?php echo e_admin_bot($statusText); ?>
+                    </span>
                 </div>
-                <div class="terminal-box shadow <?php echo $status_class; ?>">
+                <div class="terminal-body">
                     <?php echo $_SESSION['bot_message']; ?>
                 </div>
-            </div>
-        <?php 
-            unset($_SESSION['bot_message']); 
-            unset($_SESSION['bot_status']);
-        endif; 
+            </section>
+        <?php
+            unset($_SESSION['bot_message'], $_SESSION['bot_status']);
+        endif;
         ?>
 
-        <div class="row g-4">
-            <div class="col-md-3">
-                <div class="card bot-card shadow-sm h-100 border-0">
-                    <div class="card-body text-center p-4">
-                        <div class="mb-3 p-3 bg-light rounded-circle d-inline-block">
-                            <img src="https://upload.wikimedia.org/wikipedia/commons/f/fe/Shopee.svg" height="40" alt="Shopee">
+        <section class="bot-grid">
+            <?php foreach ($bots as $bot):
+                $lastRun = $bot['platform'] ? ($lastRunByPlatform[$bot['platform']] ?? null) : null;
+            ?>
+                <article class="admin-card bot-card">
+                    <div class="bot-card-top <?php echo e_admin_bot($bot['tone']); ?>"></div>
+                    <div class="p-4 d-flex flex-column flex-grow-1">
+                        <div class="bot-logo-wrap">
+                            <?php if (!empty($bot['logo'])): ?>
+                                <img src="<?php echo e_admin_bot($bot['logo']); ?>" alt="<?php echo e_admin_bot($bot['name']); ?>">
+                            <?php else: ?>
+                                <i class="fas <?php echo e_admin_bot($bot['icon']); ?>"></i>
+                            <?php endif; ?>
                         </div>
-                        <h5 class="fw-bold">Shopee Crawler</h5>
-                        <p class="text-muted small px-2">Sử dụng Selenium để vượt tường lửa, lấy giá thực tế và lịch sử bán hàng từ Shopee.</p>
-                        <hr class="my-4">
-                        <a href="index.php?role=admin&controller=bot&action=run&type=shopee" class="btn btn-lg w-100 rounded-pill text-white shadow-sm" style="background-color: #ee4d2d;">
-                            <i class="fas fa-play me-2"></i> Chạy Shopee Bot
-                        </a>
+                        <h2 class="h5 fw-bold mb-2"><?php echo e_admin_bot($bot['name']); ?></h2>
+                        <p class="text-muted small mb-3"><?php echo e_admin_bot($bot['desc']); ?></p>
+                        <div class="mt-auto">
+                            <div class="d-flex justify-content-between gap-3 border-top pt-3 mb-3">
+                                <span class="text-muted small">Lần quét gần nhất</span>
+                                <strong class="small text-end"><?php echo e_admin_bot($bot['platform'] ? bot_last_run($lastRun) : 'Chạy theo yêu cầu'); ?></strong>
+                            </div>
+                            <a href="index.php?role=admin&controller=bot&action=run&type=<?php echo e_admin_bot($bot['type']); ?>"
+                               class="btn btn-admin-primary w-100 bot-run-button">
+                                <i class="fas fa-play me-2"></i>Chạy bot
+                            </a>
+                        </div>
                     </div>
+                </article>
+            <?php endforeach; ?>
+        </section>
+
+        <section class="admin-card p-4 mt-4">
+            <h2 class="h5 fw-bold mb-3">Ghi chú vận hành</h2>
+            <div class="guide-grid">
+                <div class="guide-item">
+                    <div class="fw-bold mb-1"><i class="fas fa-link text-primary me-2"></i>Link dữ liệu</div>
+                    <div class="text-muted small">Thêm link sàn cho sản phẩm trước khi chạy crawler để bot có nguồn cập nhật.</div>
+                </div>
+                <div class="guide-item">
+                    <div class="fw-bold mb-1"><i class="fas fa-clock text-primary me-2"></i>Lịch chạy</div>
+                    <div class="text-muted small">Có thể tạo lịch tự động bằng <code>scripts/create_windows_scheduled_tasks.bat</code>; Shopee chạy từng batch nhỏ để giảm captcha.</div>
+                </div>
+                <div class="guide-item">
+                    <div class="fw-bold mb-1"><i class="fas fa-triangle-exclamation text-primary me-2"></i>Khi bị chặn</div>
+                    <div class="text-muted small">Nếu script báo captcha hoặc đăng nhập, hãy chạy trực tiếp trong terminal để xử lý thủ công.</div>
                 </div>
             </div>
-
-            <div class="col-md-3">
-                <div class="card bot-card shadow-sm h-100 border-0">
-                    <div class="card-body text-center p-4">
-                        <div class="mb-3 p-3 bg-light rounded-circle d-inline-block">
-                            <img src="https://upload.wikimedia.org/wikipedia/commons/4/43/Logo_Tiki_2023.png" height="40" alt="Tiki">
-                        </div>
-                        <h5 class="fw-bold">Tiki Scraper</h5>
-                        <p class="text-muted small px-2">Cào dữ liệu hiệu suất cao thông qua Tiki API. Cập nhật giá nhanh chóng và chính xác.</p>
-                        <hr class="my-4">
-                        <a href="index.php?role=admin&controller=bot&action=run&type=tiki" class="btn btn-primary btn-lg w-100 rounded-pill shadow-sm">
-                            <i class="fas fa-play me-2"></i> Chạy Tiki Bot
-                        </a>
-                    </div>
-                </div>
-            </div>
-
-            <div class="col-md-3">
-                <div class="card bot-card shadow-sm h-100 border-0">
-                    <div class="card-body text-center p-4">
-                        <div class="mb-3 p-3 bg-light rounded-circle d-inline-block">
-                            <img src="https://upload.wikimedia.org/wikipedia/commons/thumb/0/0e/Lazada_logo.svg/2560px-Lazada_logo.svg.png" height="30" alt="Lazada">
-                        </div>
-                        <h5 class="fw-bold">Lazada Crawler</h5>
-                        <p class="text-muted small px-2">Dò tìm giá trực diện, hỗ trợ vượt Captcha trượt và lưu lịch sử giá Lazada.</p>
-                        <hr class="my-4">
-                        <a href="index.php?role=admin&controller=bot&action=run&type=lazada" class="btn btn-lg w-100 rounded-pill text-white shadow-sm" style="background-color: #00008b;">
-                            <i class="fas fa-play me-2"></i> Chạy Lazada Bot
-                        </a>
-                    </div>
-                </div>
-            </div>
-
-            <div class="col-md-3">
-                <div class="card bot-card shadow-sm h-100 border-0" style="border-top: 5px solid #3498db !important;">
-                    <div class="card-body text-center p-4">
-                        <div class="mb-3 p-3 bg-soft-primary rounded-circle d-inline-block text-primary">
-                            <i class="fas fa-link fa-2x"></i>
-                        </div>
-                        <h5 class="fw-bold text-primary">Fuzzy Matcher</h5>
-                        <p class="text-muted small px-2">Thuật toán tìm kiếm link tự động tương ứng dựa trên tên sản phẩm Tiki đã có sẵn.</p>
-                        <hr class="my-4">
-                        <a href="index.php?role=admin&controller=bot&action=run&type=matcher" class="btn btn-outline-primary btn-lg w-100 rounded-pill shadow-sm">
-                            <i class="fas fa-search-plus me-2"></i> Tìm link tự động
-                        </a>
-                    </div>
-                </div>
-            </div>
-        </div>
-
-        <div class="mt-5 p-4 bg-white rounded-4 shadow-sm">
-            <h6 class="fw-bold mb-3"><i class="fas fa-info-circle text-info me-2"></i>Hướng dẫn vận hành</h6>
-            <ul class="text-muted small mb-0">
-                <li>Bấm <strong>Tìm link tự động</strong> sau khi bạn vừa thêm một sản phẩm mới từ Dashboard để quét cả Shopee & Lazada.</li>
-                <li>Chạy các <strong>Bot Crawler</strong> định kỳ hoặc khi cần cập nhật biểu đồ giá mới nhất.</li>
-                <li>Nếu khung Terminal báo lỗi <strong>ĐỎ</strong> (Captcha/Login), hãy mở thư mục dự án trên máy tính, chạy Bot bằng CMD/Terminal để kéo thanh trượt thủ công.</li>
-            </ul>
-        </div>
+        </section>
     </div>
-</div>
+</main>
 
 <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
 <script>
-    // Bắt sự kiện khi click vào bất kỳ nút chạy Bot nào
-    document.querySelectorAll('.btn[href*="action=run"]').forEach(button => {
-        button.addEventListener('click', function(e) {
-            // Đổi nội dung nút thành trạng thái Đang chạy
-            let originalText = this.innerHTML;
-            this.innerHTML = '<span class="spinner-border spinner-border-sm me-2" role="status" aria-hidden="true"></span> Đang chạy Bot...';
-            this.classList.add('disabled'); // Làm mờ nút, chống bấm 2 lần
-            this.style.opacity = '0.7';
-            
-            // Hiển thị một khung thông báo tạm thời báo cho Admin biết hệ thống đang xử lý
-            let terminalArea = document.querySelector('.mb-5');
-            if(!terminalArea) {
-                let infoDiv = document.createElement('div');
-                infoDiv.innerHTML = `
-                    <div class="alert alert-info shadow-sm mb-4">
-                        <i class="fas fa-cog fa-spin me-2"></i> <strong>Hệ thống đang thực thi mã Python ngầm!</strong> Quá trình này có thể mất vài phút tùy số lượng sản phẩm. Vui lòng không làm mới (F5) trang...
-                    </div>`;
-                document.querySelector('.row.g-4').insertAdjacentElement('beforebegin', infoDiv);
-            }
+    document.querySelectorAll('.bot-run-button').forEach((button) => {
+        button.addEventListener('click', () => {
+            button.classList.add('disabled');
+            button.innerHTML = '<span class="spinner-border spinner-border-sm me-2" role="status" aria-hidden="true"></span>Đang chạy...';
         });
     });
 </script>

@@ -23,6 +23,22 @@ CREATE TABLE IF NOT EXISTS products (
     ON DELETE SET NULL
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
+CREATE TABLE IF NOT EXISTS product_specifications (
+  id INT AUTO_INCREMENT PRIMARY KEY,
+  product_id INT NOT NULL,
+  group_name VARCHAR(255) NOT NULL DEFAULT 'Thông tin sản phẩm',
+  spec_name VARCHAR(255) NOT NULL,
+  spec_value TEXT NOT NULL,
+  display_order INT NOT NULL DEFAULT 0,
+  source_platform ENUM('Tiki', 'Shopee', 'Lazada', 'Manual') NOT NULL DEFAULT 'Manual',
+  created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+  KEY idx_product_specs_product_order (product_id, display_order, id),
+  KEY idx_product_specs_name (spec_name),
+  CONSTRAINT fk_product_specs_product
+    FOREIGN KEY (product_id) REFERENCES products(id)
+    ON DELETE CASCADE
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
 CREATE TABLE IF NOT EXISTS users (
   id INT AUTO_INCREMENT PRIMARY KEY,
   email VARCHAR(255) NOT NULL UNIQUE,
@@ -44,13 +60,18 @@ CREATE TABLE IF NOT EXISTS platform_links (
   historical_sold INT NOT NULL DEFAULT 0,
   rating_average DECIMAL(3,2) NOT NULL DEFAULT 0,
   review_count INT NOT NULL DEFAULT 0,
-  status TINYINT NOT NULL DEFAULT 0 COMMENT '0=pending, 1=success, 2=no_price, 3=error',
+  status TINYINT NOT NULL DEFAULT 0 COMMENT '0=pending, 1=success, 2=no_price, 3=error, 4=captcha_or_login',
   is_active TINYINT(1) NOT NULL DEFAULT 1,
   match_score INT NULL,
   last_scraped_at DATETIME NULL,
+  next_scrape_at DATETIME NULL,
+  blocked_until DATETIME NULL,
+  retry_count INT NOT NULL DEFAULT 0,
+  scrape_priority TINYINT NOT NULL DEFAULT 5,
   created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
   UNIQUE KEY uq_platform_product (product_id, platform_name),
   KEY idx_platform_active (platform_name, is_active),
+  KEY idx_platform_scrape_queue (platform_name, is_active, blocked_until, next_scrape_at, scrape_priority, last_scraped_at),
   CONSTRAINT fk_platform_links_product
     FOREIGN KEY (product_id) REFERENCES products(id)
     ON DELETE CASCADE

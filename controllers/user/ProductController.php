@@ -75,6 +75,7 @@ class ProductController {
 
         $platforms = $this->productModel->getPlatformsByProductId($id);
         $priceHistory = $this->productModel->getPriceHistory($id);
+        $productSpecs = $this->productModel->getProductSpecifications($id);
         
         // NÂNG CẤP: Lấy thống kê giá và Sản phẩm liên quan
         $priceStats = $this->productModel->getPriceStats($id);
@@ -137,6 +138,10 @@ class ProductController {
             if ($product_id > 0) {
                 // Xóa khỏi Database
                 $this->productModel->deletePriceAlert($_SESSION['user_id'], $product_id);
+                if (($_GET['redirect'] ?? '') === 'my_alerts') {
+                    header("Location: index.php?role=user&controller=product&action=myAlerts&msg=alert_removed");
+                    exit();
+                }
                 // Quay lại trang chi tiết kèm thông báo
                 header("Location: index.php?role=user&controller=product&action=detail&id=$product_id&msg=alert_removed");
                 exit();

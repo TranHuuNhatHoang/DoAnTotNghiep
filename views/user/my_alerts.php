@@ -1,132 +1,614 @@
-<?php if (session_status() === PHP_SESSION_NONE) { session_start(); } ?>
+<?php
+if (session_status() === PHP_SESSION_NONE) {
+    session_start();
+}
+
+function e_alerts($value) {
+    return htmlspecialchars((string) $value, ENT_QUOTES, 'UTF-8');
+}
+
+function money_alerts($value) {
+    if (!$value || (float) $value <= 0) {
+        return 'Đang cập nhật';
+    }
+
+    return number_format((float) $value, 0, ',', '.') . 'đ';
+}
+
+$alerts = $alerts ?? [];
+$totalAlerts = count($alerts);
+$readyAlerts = 0;
+$waitingAlerts = 0;
+
+foreach ($alerts as $alertItem) {
+    $minPrice = (float) ($alertItem['min_price'] ?? 0);
+    $targetPrice = (float) ($alertItem['target_price'] ?? 0);
+    if ($minPrice > 0 && $targetPrice > 0 && $minPrice <= $targetPrice) {
+        $readyAlerts++;
+    } else {
+        $waitingAlerts++;
+    }
+}
+?>
 <!DOCTYPE html>
 <html lang="vi">
 <head>
     <meta charset="UTF-8">
-    <title>Danh sách Săn Sale - Price Comparison</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Danh sách săn sale - Price Comparison</title>
     <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css">
     <style>
-        body { background-color: #f4f7f6; }
-        .alert-card { border: none; border-radius: 20px; overflow: hidden; transition: all 0.3s ease; }
-        .alert-card:hover { transform: translateY(-7px); box-shadow: 0 15px 30px rgba(0,0,0,0.1); }
-        .img-container { height: 220px; width: 100%; background-color: #fff; display: flex; align-items: center; justify-content: center; position: relative; border-bottom: 1px solid #f0f0f0; }
-        .img-container img { max-height: 100%; max-width: 100%; object-fit: contain; padding: 15px; }
-        .empty-img-icon { font-size: 5rem; color: #e9ecef; }
-        
-        /* Nhãn dán nổi bật */
-        .status-badge { position: absolute; top: 15px; left: 15px; z-index: 10; padding: 6px 15px; font-weight: bold; border-radius: 30px; box-shadow: 0 4px 10px rgba(0,0,0,0.1); }
-        .badge-success { background: linear-gradient(135deg, #11998e 0%, #38ef7d 100%); color: white; }
-        .badge-waiting { background: rgba(255, 255, 255, 0.9); color: #6c757d; backdrop-filter: blur(5px); border: 1px solid #e9ecef; }
-        
-        .price-box { background: #f8f9fa; border-radius: 12px; padding: 12px; border: 1px dashed #ced4da; }
-        .target-price { color: #fd7e14; font-size: 1.3rem; font-weight: 800; }
-        .current-price { color: #212529; font-size: 1.1rem; font-weight: 700; }
-        .price-label { font-size: 0.75rem; text-transform: uppercase; letter-spacing: 0.5px; color: #6c757d; font-weight: 600; margin-bottom: 3px; }
-        .line-clamp-2 { display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
+        :root {
+            --ink: #111827;
+            --muted: #6b7280;
+            --line: #e5e7eb;
+            --soft: #f4f6f8;
+            --brand: #f7c600;
+            --danger: #e11d48;
+            --success: #16a34a;
+            --blue: #2563eb;
+        }
+
+        * { box-sizing: border-box; }
+
+        body {
+            margin: 0;
+            min-height: 100vh;
+            background: var(--soft);
+            color: var(--ink);
+            font-family: "Segoe UI", Arial, sans-serif;
+        }
+
+        .topbar {
+            background: #0f172a;
+            color: #fff;
+            border-bottom: 4px solid var(--brand);
+        }
+
+        .topbar-inner {
+            min-height: 72px;
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            gap: 20px;
+        }
+
+        .brand-link {
+            display: inline-flex;
+            align-items: center;
+            gap: 10px;
+            color: #fff;
+            text-decoration: none;
+            font-weight: 900;
+            letter-spacing: 0;
+        }
+
+        .brand-mark {
+            width: 40px;
+            height: 40px;
+            border-radius: 8px;
+            display: grid;
+            place-items: center;
+            background: var(--brand);
+            color: #111827;
+        }
+
+        .top-actions {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            flex-wrap: wrap;
+            justify-content: flex-end;
+        }
+
+        .pill-link {
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            gap: 8px;
+            min-height: 40px;
+            padding: 0 16px;
+            border-radius: 999px;
+            color: #e5e7eb;
+            border: 1px solid rgba(255,255,255,.18);
+            text-decoration: none;
+            font-weight: 700;
+            font-size: .92rem;
+        }
+
+        .pill-link.primary {
+            background: var(--brand);
+            color: #111827;
+            border-color: var(--brand);
+        }
+
+        .hero {
+            background: linear-gradient(135deg, #111827 0%, #1e293b 58%, #334155 100%);
+            color: #fff;
+            padding: 34px 0;
+        }
+
+        .hero-grid {
+            display: grid;
+            grid-template-columns: minmax(0, 1fr) 380px;
+            gap: 24px;
+            align-items: stretch;
+        }
+
+        .eyebrow {
+            color: var(--brand);
+            font-weight: 900;
+            font-size: .82rem;
+            text-transform: uppercase;
+            letter-spacing: 0;
+            margin-bottom: 8px;
+        }
+
+        .hero h1 {
+            font-size: clamp(1.8rem, 3vw, 3rem);
+            line-height: 1.08;
+            font-weight: 950;
+            margin: 0 0 12px;
+            letter-spacing: 0;
+        }
+
+        .hero p {
+            color: #cbd5e1;
+            max-width: 700px;
+            margin: 0;
+            font-size: 1.02rem;
+        }
+
+        .summary-panel {
+            background: rgba(255,255,255,.08);
+            border: 1px solid rgba(255,255,255,.12);
+            border-radius: 8px;
+            padding: 18px;
+            display: grid;
+            grid-template-columns: repeat(3, 1fr);
+            gap: 10px;
+        }
+
+        .summary-item {
+            background: rgba(255,255,255,.08);
+            border-radius: 8px;
+            padding: 14px;
+        }
+
+        .summary-number {
+            display: block;
+            font-size: 1.6rem;
+            font-weight: 950;
+            line-height: 1;
+        }
+
+        .summary-label {
+            display: block;
+            margin-top: 6px;
+            color: #dbeafe;
+            font-size: .78rem;
+            font-weight: 700;
+        }
+
+        .page-shell {
+            padding: 28px 0 44px;
+        }
+
+        .notice {
+            border: 1px solid #bbf7d0;
+            background: #f0fdf4;
+            color: #166534;
+            border-radius: 8px;
+            padding: 12px 14px;
+            font-weight: 700;
+            margin-bottom: 18px;
+        }
+
+        .toolbar {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            gap: 14px;
+            margin-bottom: 18px;
+        }
+
+        .toolbar h2 {
+            margin: 0;
+            font-size: 1.35rem;
+            font-weight: 950;
+        }
+
+        .toolbar p {
+            margin: 3px 0 0;
+            color: var(--muted);
+        }
+
+        .quick-search {
+            display: flex;
+            min-width: 340px;
+            max-width: 460px;
+            flex: 1;
+            border: 1px solid var(--line);
+            border-radius: 8px;
+            overflow: hidden;
+            background: #fff;
+            box-shadow: 0 10px 24px rgba(15,23,42,.06);
+        }
+
+        .quick-search input {
+            min-width: 0;
+            border: 0;
+            flex: 1;
+            padding: 0 14px;
+            outline: none;
+        }
+
+        .quick-search button {
+            border: 0;
+            background: var(--brand);
+            color: #111827;
+            width: 48px;
+            font-weight: 900;
+        }
+
+        .alert-grid {
+            display: grid;
+            grid-template-columns: repeat(4, minmax(0, 1fr));
+            gap: 18px;
+        }
+
+        .watch-card {
+            background: #fff;
+            border: 1px solid var(--line);
+            border-radius: 8px;
+            overflow: hidden;
+            box-shadow: 0 12px 28px rgba(15,23,42,.07);
+            display: flex;
+            flex-direction: column;
+            min-height: 100%;
+        }
+
+        .watch-media {
+            position: relative;
+            aspect-ratio: 1 / .82;
+            background: #fff;
+            border-bottom: 1px solid var(--line);
+            display: grid;
+            place-items: center;
+            padding: 16px;
+        }
+
+        .watch-media img {
+            width: 100%;
+            height: 100%;
+            object-fit: contain;
+        }
+
+        .empty-product-icon {
+            color: #cbd5e1;
+            font-size: 4rem;
+        }
+
+        .status-badge {
+            position: absolute;
+            left: 12px;
+            top: 12px;
+            border-radius: 999px;
+            padding: 6px 10px;
+            font-size: .76rem;
+            font-weight: 900;
+            box-shadow: 0 8px 18px rgba(15,23,42,.14);
+        }
+
+        .status-badge.ready {
+            background: #dcfce7;
+            color: #166534;
+        }
+
+        .status-badge.waiting {
+            background: #fff7ed;
+            color: #9a3412;
+        }
+
+        .watch-body {
+            padding: 16px;
+            display: flex;
+            flex-direction: column;
+            flex: 1;
+        }
+
+        .product-title {
+            color: var(--ink);
+            text-decoration: none;
+            font-weight: 850;
+            line-height: 1.35;
+            min-height: 46px;
+            display: -webkit-box;
+            -webkit-line-clamp: 2;
+            -webkit-box-orient: vertical;
+            overflow: hidden;
+        }
+
+        .product-title:hover { color: var(--blue); }
+
+        .price-panel {
+            margin: 14px 0;
+            border: 1px solid var(--line);
+            border-radius: 8px;
+            overflow: hidden;
+        }
+
+        .price-row {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            gap: 12px;
+            padding: 11px 12px;
+            background: #f8fafc;
+        }
+
+        .price-row + .price-row {
+            border-top: 1px solid var(--line);
+            background: #fff;
+        }
+
+        .price-label {
+            color: var(--muted);
+            font-size: .78rem;
+            font-weight: 800;
+        }
+
+        .target-price {
+            color: var(--danger);
+            font-size: 1.05rem;
+            font-weight: 950;
+            white-space: nowrap;
+        }
+
+        .current-price {
+            color: var(--ink);
+            font-size: 1.02rem;
+            font-weight: 950;
+            white-space: nowrap;
+        }
+
+        .current-price.ready {
+            color: var(--success);
+        }
+
+        .watch-meta {
+            color: var(--muted);
+            font-size: .8rem;
+            margin-bottom: 14px;
+        }
+
+        .watch-actions {
+            display: grid;
+            grid-template-columns: 1fr 44px;
+            gap: 8px;
+            margin-top: auto;
+        }
+
+        .btn-main {
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            gap: 8px;
+            min-height: 42px;
+            border-radius: 8px;
+            border: 1px solid #111827;
+            background: #111827;
+            color: #fff;
+            text-decoration: none;
+            font-weight: 850;
+        }
+
+        .btn-icon {
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            min-height: 42px;
+            border-radius: 8px;
+            border: 1px solid #fecdd3;
+            color: var(--danger);
+            background: #fff1f2;
+            text-decoration: none;
+        }
+
+        .empty-state {
+            background: #fff;
+            border: 1px solid var(--line);
+            border-radius: 8px;
+            padding: 48px 24px;
+            text-align: center;
+            box-shadow: 0 12px 28px rgba(15,23,42,.07);
+        }
+
+        .empty-state i {
+            width: 82px;
+            height: 82px;
+            display: inline-grid;
+            place-items: center;
+            border-radius: 20px;
+            background: #fff7ed;
+            color: #ea580c;
+            font-size: 2.1rem;
+            margin-bottom: 18px;
+        }
+
+        .empty-state h3 {
+            font-weight: 950;
+            margin-bottom: 8px;
+        }
+
+        .empty-state p {
+            max-width: 520px;
+            margin: 0 auto 22px;
+            color: var(--muted);
+        }
+
+        .footer {
+            background: #0f172a;
+            color: #94a3b8;
+            padding: 22px 0;
+            margin-top: auto;
+            font-size: .9rem;
+        }
+
+        @media (max-width: 1199px) {
+            .alert-grid { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+            .hero-grid { grid-template-columns: 1fr; }
+        }
+
+        @media (max-width: 991px) {
+            .alert-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+            .toolbar { align-items: stretch; flex-direction: column; }
+            .quick-search { min-width: 0; max-width: none; width: 100%; }
+        }
+
+        @media (max-width: 575px) {
+            .topbar-inner { align-items: flex-start; flex-direction: column; padding: 14px 0; }
+            .top-actions { width: 100%; justify-content: flex-start; }
+            .pill-link { flex: 1; min-width: 140px; }
+            .summary-panel { grid-template-columns: 1fr; }
+            .alert-grid { grid-template-columns: 1fr; }
+            .hero { padding: 26px 0; }
+        }
     </style>
 </head>
-<body class="d-flex flex-column min-vh-100">
-
-<div class="bg-dark text-white py-3 shadow-sm">
-    <div class="container d-flex justify-content-between align-items-center">
-        <a href="index.php" class="text-white text-decoration-none fw-bold fs-5"><i class="fas fa-arrow-left me-2"></i>Quay lại trang chủ</a>
-        <span class="fw-bold"><i class="fas fa-bullseye text-warning me-2"></i>TRUNG TÂM SĂN SALE</span>
-    </div>
-</div>
-
-<div class="container my-5 flex-grow-1">
-    <div class="d-flex justify-content-between align-items-end mb-4">
-        <div>
-            <h2 class="fw-bold mb-1"><i class="fas fa-heart text-danger me-2"></i>Sản Phẩm Đang Theo Dõi</h2>
-            <p class="text-muted mb-0">Hệ thống sẽ tự động gửi Email khi giá chạm mốc bạn mong muốn.</p>
-        </div>
-        <a href="index.php" class="btn btn-outline-primary rounded-pill px-4 fw-bold shadow-sm d-none d-md-block">
-            <i class="fas fa-search me-2"></i>Tìm thêm DEAL
-        </a>
-    </div>
-
-    <?php if (empty($alerts)): ?>
-        <div class="card border-0 shadow-sm" style="border-radius: 20px;">
-            <div class="card-body py-5 text-center">
-                <img src="https://cdn-icons-png.flaticon.com/512/11329/11329060.png" alt="Empty" width="150" class="mb-4 opacity-50">
-                <h4 class="fw-bold text-dark">Danh sách trống trơn!</h4>
-                <p class="text-muted mx-auto" style="max-width: 400px;">Bạn chưa đưa sản phẩm nào vào tầm ngắm. Hãy tìm kiếm sản phẩm và thiết lập mức giá "chốt đơn" ngay nhé.</p>
-                <a href="index.php" class="btn btn-warning rounded-pill px-5 py-2 fw-bold mt-2 shadow-sm">
-                    <i class="fas fa-rocket me-2"></i>Đi Săn Sale Thôi
-                </a>
+<body class="d-flex flex-column">
+    <header class="topbar">
+        <div class="container topbar-inner">
+            <a class="brand-link" href="index.php">
+                <span class="brand-mark"><i class="fas fa-bolt"></i></span>
+                <span>Price Comparison</span>
+            </a>
+            <div class="top-actions">
+                <a class="pill-link" href="index.php"><i class="fas fa-house"></i> Trang chủ</a>
+                <a class="pill-link primary" href="index.php"><i class="fas fa-magnifying-glass"></i> Tìm deal mới</a>
             </div>
         </div>
-    <?php else: ?>
-        <div class="row g-4">
-            <?php foreach ($alerts as $item): 
-                $isReached = ($item['min_price'] > 0 && $item['min_price'] <= $item['target_price']);
-            ?>
-                <div class="col-md-6 col-lg-4 col-xl-3">
-                    <div class="card h-100 alert-card bg-white position-relative">
-                        
-                        <div class="img-container">
-                            <?php if($isReached): ?>
-                                <span class="status-badge badge-success"><i class="fas fa-meteor me-1"></i>Đã Sập Sàn</span>
-                            <?php else: ?>
-                                <span class="status-badge badge-waiting"><i class="fas fa-hourglass-half me-1"></i>Đang Canh Giá</span>
-                            <?php endif; ?>
-                            
-                            <?php if(!empty($item['thumbnail_url'])): ?>
-                                <img src="<?php echo htmlspecialchars($item['thumbnail_url']); ?>" alt="Ảnh sản phẩm">
-                            <?php else: ?>
-                                <i class="fas fa-box-open empty-img-icon"></i>
-                            <?php endif; ?>
-                        </div>
+    </header>
 
-                        <div class="card-body p-4 d-flex flex-column">
-                            <h6 class="fw-bold mb-3 line-clamp-2 text-dark" title="<?php echo htmlspecialchars($item['product_name']); ?>">
-                                <?php echo htmlspecialchars($item['product_name']); ?>
-                            </h6>
-                            
-                            <div class="mt-auto">
-                                <div class="price-box mb-3">
-                                    <div class="d-flex justify-content-between align-items-center mb-2 pb-2 border-bottom">
-                                        <div class="price-label">Giá mong muốn</div>
-                                        <div class="target-price"><?php echo number_format($item['target_price']); ?>đ</div>
+    <section class="hero">
+        <div class="container hero-grid">
+            <div>
+                <div class="eyebrow">Trung tâm săn sale</div>
+                <h1>Sản phẩm đang theo dõi</h1>
+                <p>Theo dõi mức giá mong muốn của bạn và quay lại sản phẩm ngay khi giá rẻ nhất trên các sàn đã sẵn sàng để chốt.</p>
+            </div>
+            <div class="summary-panel" aria-label="Thống kê cảnh báo giá">
+                <div class="summary-item">
+                    <span class="summary-number"><?php echo number_format($totalAlerts); ?></span>
+                    <span class="summary-label">Đang theo dõi</span>
+                </div>
+                <div class="summary-item">
+                    <span class="summary-number"><?php echo number_format($readyAlerts); ?></span>
+                    <span class="summary-label">Đạt giá</span>
+                </div>
+                <div class="summary-item">
+                    <span class="summary-number"><?php echo number_format($waitingAlerts); ?></span>
+                    <span class="summary-label">Đang canh</span>
+                </div>
+            </div>
+        </div>
+    </section>
+
+    <main class="page-shell flex-grow-1">
+        <div class="container">
+            <?php if (($_GET['msg'] ?? '') === 'alert_removed'): ?>
+                <div class="notice"><i class="fas fa-check-circle me-2"></i>Đã hủy theo dõi sản phẩm.</div>
+            <?php endif; ?>
+
+            <div class="toolbar">
+                <div>
+                    <h2>Danh sách của bạn</h2>
+                    <p><?php echo $totalAlerts > 0 ? 'Các sản phẩm được sắp theo thời gian thiết lập mới nhất.' : 'Bạn chưa có sản phẩm nào trong danh sách theo dõi.'; ?></p>
+                </div>
+                <form class="quick-search" action="index.php" method="GET">
+                    <input type="hidden" name="role" value="user">
+                    <input type="hidden" name="controller" value="product">
+                    <input type="hidden" name="action" value="search">
+                    <input type="text" name="keyword" placeholder="Tìm thêm điện thoại, laptop, phụ kiện...">
+                    <button type="submit" aria-label="Tìm kiếm"><i class="fas fa-search"></i></button>
+                </form>
+            </div>
+
+            <?php if (empty($alerts)): ?>
+                <section class="empty-state">
+                    <i class="fas fa-bell"></i>
+                    <h3>Chưa có sản phẩm theo dõi</h3>
+                    <p>Hãy tìm sản phẩm, mở trang chi tiết và đặt mức giá mong muốn. Danh sách này sẽ giúp bạn kiểm tra nhanh sản phẩm nào đã chạm giá.</p>
+                    <a class="btn-main px-4" href="index.php"><i class="fas fa-bolt"></i> Khám phá deal</a>
+                </section>
+            <?php else: ?>
+                <div class="alert-grid">
+                    <?php foreach ($alerts as $item):
+                        $productId = (int) ($item['product_id'] ?? 0);
+                        $productName = $item['product_name'] ?? 'Sản phẩm';
+                        $minPrice = (float) ($item['min_price'] ?? 0);
+                        $targetPrice = (float) ($item['target_price'] ?? 0);
+                        $isReached = ($minPrice > 0 && $targetPrice > 0 && $minPrice <= $targetPrice);
+                        $createdAt = !empty($item['alert_created_at']) ? date('d/m/Y', strtotime($item['alert_created_at'])) : 'Chưa rõ ngày';
+                    ?>
+                        <article class="watch-card">
+                            <div class="watch-media">
+                                <span class="status-badge <?php echo $isReached ? 'ready' : 'waiting'; ?>">
+                                    <i class="fas <?php echo $isReached ? 'fa-circle-check' : 'fa-clock'; ?> me-1"></i>
+                                    <?php echo $isReached ? 'Đạt giá' : 'Đang canh'; ?>
+                                </span>
+                                <?php if (!empty($item['thumbnail_url'])): ?>
+                                    <img src="<?php echo e_alerts($item['thumbnail_url']); ?>" alt="<?php echo e_alerts($productName); ?>">
+                                <?php else: ?>
+                                    <i class="fas fa-box-open empty-product-icon"></i>
+                                <?php endif; ?>
+                            </div>
+                            <div class="watch-body">
+                                <a class="product-title" href="index.php?role=user&controller=product&action=detail&id=<?php echo $productId; ?>" title="<?php echo e_alerts($productName); ?>">
+                                    <?php echo e_alerts($productName); ?>
+                                </a>
+
+                                <div class="price-panel">
+                                    <div class="price-row">
+                                        <span class="price-label">Giá mong muốn</span>
+                                        <span class="target-price"><?php echo money_alerts($targetPrice); ?></span>
                                     </div>
-                                    <div class="d-flex justify-content-between align-items-center">
-                                        <div class="price-label">Rẻ nhất hiện tại</div>
-                                        <div class="current-price <?php echo $isReached ? 'text-success' : ''; ?>">
-                                            <?php echo $item['min_price'] ? number_format($item['min_price']).'đ' : '<span class="badge bg-secondary">Chờ quét...</span>'; ?>
-                                        </div>
+                                    <div class="price-row">
+                                        <span class="price-label">Rẻ nhất hiện tại</span>
+                                        <span class="current-price <?php echo $isReached ? 'ready' : ''; ?>"><?php echo money_alerts($minPrice); ?></span>
                                     </div>
                                 </div>
 
-                                <div class="row g-2">
-                                    <div class="col-8">
-                                        <a href="index.php?role=user&controller=product&action=detail&id=<?php echo $item['product_id']; ?>" class="btn btn-dark w-100 rounded-pill fw-bold" style="font-size: 0.9rem;">
-                                            Xem Biểu Đồ
-                                        </a>
-                                    </div>
-                                    <div class="col-4">
-                                        <a href="index.php?role=user&controller=product&action=removeAlert&id=<?php echo $item['product_id']; ?>" 
-                                           class="btn btn-outline-danger w-100 rounded-pill" 
-                                           onclick="return confirm('Ngừng nhận thông báo cho sản phẩm này?');" title="Hủy theo dõi">
-                                            <i class="fas fa-trash-alt"></i>
-                                        </a>
-                                    </div>
+                                <div class="watch-meta">
+                                    <i class="fas fa-calendar-check me-1"></i> Theo dõi từ <?php echo e_alerts($createdAt); ?>
+                                </div>
+
+                                <div class="watch-actions">
+                                    <a class="btn-main" href="index.php?role=user&controller=product&action=detail&id=<?php echo $productId; ?>">
+                                        <i class="fas fa-chart-line"></i> Xem giá
+                                    </a>
+                                    <a class="btn-icon" href="index.php?role=user&controller=product&action=removeAlert&id=<?php echo $productId; ?>&redirect=my_alerts"
+                                       onclick="return confirm('Bạn muốn hủy theo dõi sản phẩm này?');"
+                                       aria-label="Hủy theo dõi">
+                                        <i class="fas fa-trash"></i>
+                                    </a>
                                 </div>
                             </div>
-                        </div>
-                    </div>
+                        </article>
+                    <?php endforeach; ?>
                 </div>
-            <?php endforeach; ?>
+            <?php endif; ?>
         </div>
-    <?php endif; ?>
-</div>
+    </main>
 
-<footer class="bg-dark text-white py-4 mt-auto">
-    <div class="container text-center">
-        <small class="text-white-50">&copy; <?php echo date("Y"); ?> DoAnTotNghiep - Hệ Thống So Sánh Giá Đa Sàn</small>
-    </div>
-</footer>
+    <footer class="footer">
+        <div class="container d-flex flex-wrap justify-content-between gap-2">
+            <span>&copy; <?php echo date('Y'); ?> Price Comparison</span>
+            <span>So sánh giá đa sàn, theo dõi biến động và cảnh báo deal.</span>
+        </div>
+    </footer>
 
-<script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
 </body>
 </html>
