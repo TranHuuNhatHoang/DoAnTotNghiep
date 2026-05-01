@@ -34,6 +34,29 @@ function platform_status_meta($status, $isActive) {
     }
 }
 
+function platform_availability_meta($status, $isActive) {
+    if (!$isActive) {
+        return ['label' => 'Tạm tắt', 'class' => 'text-bg-secondary'];
+    }
+
+    $map = [
+        'active' => ['label' => 'Đang hoạt động', 'class' => 'text-bg-success'],
+        'out_of_stock' => ['label' => 'Hết hàng', 'class' => 'text-bg-warning'],
+        'temporarily_unavailable' => ['label' => 'Tạm ngừng bán', 'class' => 'text-bg-warning'],
+        'discontinued' => ['label' => 'Ngừng bán/link chết', 'class' => 'text-bg-danger'],
+        'invalid_url' => ['label' => 'Link lỗi', 'class' => 'text-bg-danger'],
+        'fetch_error' => ['label' => 'Lỗi quét', 'class' => 'text-bg-danger'],
+        'blocked_or_captcha' => ['label' => 'Bị captcha/chặn', 'class' => 'text-bg-warning'],
+        'unknown' => ['label' => 'Chưa kiểm tra', 'class' => 'text-bg-light border'],
+    ];
+
+    return $map[$status] ?? $map['unknown'];
+}
+
+function admin_platform_date($value) {
+    return !empty($value) ? date('H:i d/m/Y', strtotime($value)) : 'Chưa có';
+}
+
 function platform_meta($name) {
     $map = [
         'Tiki' => ['logo' => 'https://upload.wikimedia.org/wikipedia/commons/4/43/Logo_Tiki_2023.png', 'class' => 'tiki'],
@@ -162,7 +185,7 @@ function platform_meta($name) {
                 <?php foreach ($links as $link):
                     $meta = platform_meta($link['platform_name'] ?? '');
                     $isActive = (int) ($link['is_active'] ?? 0) === 1;
-                    $statusMeta = platform_status_meta($link['status'] ?? 0, $isActive);
+                    $statusMeta = platform_availability_meta($link['availability_status'] ?? 'unknown', $isActive);
                 ?>
                     <article class="admin-card platform-card <?php echo e_admin_platform($meta['class']); ?>">
                         <div class="p-4">
@@ -188,9 +211,28 @@ function platform_meta($name) {
                                 </div>
                                 <div class="data-row">
                                     <span class="text-muted">Quét lần cuối</span>
-                                    <strong><?php echo !empty($link['last_scraped_at']) ? date('H:i d/m/Y', strtotime($link['last_scraped_at'])) : 'Chưa quét'; ?></strong>
+                                    <strong><?php echo e_admin_platform(admin_platform_date($link['last_scraped_at'] ?? null)); ?></strong>
+                                </div>
+                                <div class="data-row">
+                                    <span class="text-muted">Kiểm tra cuối</span>
+                                    <strong><?php echo e_admin_platform(admin_platform_date($link['last_checked_at'] ?? null)); ?></strong>
+                                </div>
+                                <div class="data-row">
+                                    <span class="text-muted">Kiểm tra tiếp</span>
+                                    <strong><?php echo e_admin_platform(admin_platform_date($link['next_check_at'] ?? null)); ?></strong>
+                                </div>
+                                <div class="data-row">
+                                    <span class="text-muted">Số lần lỗi liên tiếp</span>
+                                    <strong><?php echo (int) ($link['consecutive_failures'] ?? 0); ?></strong>
                                 </div>
                             </div>
+
+                            <?php if (!empty($link['error_message'])): ?>
+                                <div class="alert alert-warning small py-2 mb-3">
+                                    <strong>Lỗi gần nhất:</strong>
+                                    <?php echo e_admin_platform($link['error_message']); ?>
+                                </div>
+                            <?php endif; ?>
 
                             <div class="d-flex justify-content-between align-items-center gap-2">
                                 <a class="btn btn-admin-soft flex-grow-1" href="<?php echo e_admin_platform($link['product_url'] ?? '#'); ?>" target="_blank" rel="noopener">

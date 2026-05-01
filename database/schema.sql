@@ -61,17 +61,23 @@ CREATE TABLE IF NOT EXISTS platform_links (
   rating_average DECIMAL(3,2) NOT NULL DEFAULT 0,
   review_count INT NOT NULL DEFAULT 0,
   status TINYINT NOT NULL DEFAULT 0 COMMENT '0=pending, 1=success, 2=no_price, 3=error, 4=captcha_or_login',
+  availability_status ENUM('unknown', 'active', 'out_of_stock', 'temporarily_unavailable', 'discontinued', 'invalid_url', 'fetch_error', 'blocked_or_captcha') NOT NULL DEFAULT 'unknown',
+  error_message VARCHAR(500) NULL,
   is_active TINYINT(1) NOT NULL DEFAULT 1,
   match_score INT NULL,
   last_scraped_at DATETIME NULL,
+  last_checked_at DATETIME NULL,
   next_scrape_at DATETIME NULL,
+  next_check_at DATETIME NULL,
   blocked_until DATETIME NULL,
   retry_count INT NOT NULL DEFAULT 0,
+  consecutive_failures INT NOT NULL DEFAULT 0,
   scrape_priority TINYINT NOT NULL DEFAULT 5,
   created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
   UNIQUE KEY uq_platform_product (product_id, platform_name),
   KEY idx_platform_active (platform_name, is_active),
   KEY idx_platform_scrape_queue (platform_name, is_active, blocked_until, next_scrape_at, scrape_priority, last_scraped_at),
+  KEY idx_platform_link_availability (platform_name, is_active, availability_status, status, next_check_at),
   CONSTRAINT fk_platform_links_product
     FOREIGN KEY (product_id) REFERENCES products(id)
     ON DELETE CASCADE

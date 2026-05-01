@@ -26,7 +26,8 @@ class AdminPlatformController {
         $product_id = isset($_GET['product_id']) ? intval($_GET['product_id']) : 0;
         
         if ($product_id === 0) {
-            $products = $this->productModel->getAllProductsWithStats();
+            $filters = $this->getOverviewFilters();
+            $products = $this->getOverviewProducts($filters);
             $platformStats = $this->getPlatformStats();
             $productPlatformMap = $this->getProductPlatformMap();
             require_once 'views/admin/platforms_overview.php';
@@ -44,19 +45,88 @@ class AdminPlatformController {
         require_once 'views/admin/platforms.php';
     }
 
+    private function getOverviewFilters() {
+        $allowedPlatforms = ['Tiki', 'Shopee', 'Lazada'];
+        $allowedStatuses = [
+            'unknown',
+            'active',
+            'out_of_stock',
+            'temporarily_unavailable',
+            'discontinued',
+            'invalid_url',
+            'fetch_error',
+            'blocked_or_captcha',
+            'needs_check',
+        ];
+
+        $platform = $_GET['platform'] ?? '';
+        $availabilityStatus = $_GET['availability_status'] ?? '';
+
+        return [
+            'platform' => in_array($platform, $allowedPlatforms, true) ? $platform : '',
+            'availability_status' => in_array($availabilityStatus, $allowedStatuses, true) ? $availabilityStatus : '',
+        ];
+    }
+
+    private function getOverviewProducts($filters) {
+        $where = [];
+        $params = [];
+        $types = '';
+
+        if (!empty($filters['platform'])) {
+            $where[] = "pl.platform_name = ?";
+            $params[] = $filters['platform'];
+            $types .= 's';
+        }
+
+        if (!empty($filters['availability_status'])) {
+            if ($filters['availability_status'] === 'needs_check') {
+                $where[] = "(pl.availability_status IN ('fetch_error', 'blocked_or_captcha', 'invalid_url', 'unknown') OR pl.next_check_at <= NOW())";
+            } else {
+                $where[] = "pl.availability_status = ?";
+                $params[] = $filters['availability_status'];
+                $types .= 's';
+            }
+        }
+
+        if (empty($where)) {
+            return $this->productModel->getAllProductsWithStats();
+        }
+
+        $sql = "SELECT DISTINCT p.*,
+                       c.name as category_name,
+                       (SELECT COUNT(*) FROM platform_links WHERE product_id = p.id AND is_active = 1) as total_active_links,
+                       (SELECT MIN(current_price) FROM platform_links WHERE product_id = p.id AND is_active = 1 AND current_price > 0) as min_price,
+                       (SELECT MAX(last_checked_at) FROM platform_links WHERE product_id = p.id) as last_update
+                FROM products p
+                LEFT JOIN categories c ON p.category_id = c.id
+                JOIN platform_links pl ON pl.product_id = p.id
+                WHERE " . implode(' AND ', $where) . "
+                ORDER BY p.id DESC";
+
+        $stmt = $this->db->prepare($sql);
+        if (!$stmt) return [];
+        if ($params) {
+            $stmt->bind_param($types, ...$params);
+        }
+        $stmt->execute();
+        return $stmt->get_result()->fetch_all(MYSQLI_ASSOC);
+    }
+
     private function getPlatformStats() {
         $sql = "SELECT platform_name,
                        COUNT(*) as total_links,
                        SUM(CASE WHEN is_active = 1 THEN 1 ELSE 0 END) as active_links,
+                       SUM(CASE WHEN availability_status IN ('fetch_error', 'blocked_or_captcha', 'invalid_url') THEN 1 ELSE 0 END) as problem_links,
                        MAX(last_scraped_at) as last_scraped_at
                 FROM platform_links
                 GROUP BY platform_name";
         $result = $this->db->query($sql);
 
         $stats = [
-            'Tiki' => ['total_links' => 0, 'active_links' => 0, 'last_scraped_at' => null],
-            'Shopee' => ['total_links' => 0, 'active_links' => 0, 'last_scraped_at' => null],
-            'Lazada' => ['total_links' => 0, 'active_links' => 0, 'last_scraped_at' => null],
+            'Tiki' => ['total_links' => 0, 'active_links' => 0, 'problem_links' => 0, 'last_scraped_at' => null],
+            'Shopee' => ['total_links' => 0, 'active_links' => 0, 'problem_links' => 0, 'last_scraped_at' => null],
+            'Lazada' => ['total_links' => 0, 'active_links' => 0, 'problem_links' => 0, 'last_scraped_at' => null],
         ];
 
         if ($result) {
@@ -72,7 +142,10 @@ class AdminPlatformController {
         $sql = "SELECT product_id,
                        MAX(CASE WHEN platform_name = 'Tiki' THEN is_active ELSE NULL END) as tiki_active,
                        MAX(CASE WHEN platform_name = 'Shopee' THEN is_active ELSE NULL END) as shopee_active,
-                       MAX(CASE WHEN platform_name = 'Lazada' THEN is_active ELSE NULL END) as lazada_active
+                       MAX(CASE WHEN platform_name = 'Lazada' THEN is_active ELSE NULL END) as lazada_active,
+                       MAX(CASE WHEN platform_name = 'Tiki' THEN availability_status ELSE NULL END) as tiki_status,
+                       MAX(CASE WHEN platform_name = 'Shopee' THEN availability_status ELSE NULL END) as shopee_status,
+                       MAX(CASE WHEN platform_name = 'Lazada' THEN availability_status ELSE NULL END) as lazada_status
                 FROM platform_links
                 GROUP BY product_id";
         $result = $this->db->query($sql);

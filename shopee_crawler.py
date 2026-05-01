@@ -34,6 +34,13 @@ EXIT_OK = 0
 EXIT_FATAL = 1
 EXIT_CAPTCHA = 2
 
+AVAILABILITY_ACTIVE = "active"
+AVAILABILITY_OUT_OF_STOCK = "out_of_stock"
+AVAILABILITY_TEMPORARILY_UNAVAILABLE = "temporarily_unavailable"
+AVAILABILITY_DISCONTINUED = "discontinued"
+AVAILABILITY_FETCH_ERROR = "fetch_error"
+AVAILABILITY_BLOCKED = "blocked_or_captcha"
+
 BASE_DIR = Path(__file__).resolve().parent
 DEBUG_DIR = BASE_DIR / "storage" / "bot_debug"
 
@@ -83,6 +90,7 @@ NO_PRICE_RETRY_MINUTES = env_int("SHOPEE_NO_PRICE_RETRY_MINUTES", 720, minimum=3
 ERROR_RETRY_MINUTES = env_int("SHOPEE_ERROR_RETRY_MINUTES", 60, minimum=15)
 MAX_RETRY_DELAY_MINUTES = env_int("SHOPEE_MAX_RETRY_DELAY_MINUTES", 1440, minimum=60)
 LOCK_STALE_MINUTES = env_int("SHOPEE_LOCK_STALE_MINUTES", 120, minimum=30)
+FINAL_STATUS_FAILURES = env_int("SHOPEE_FINAL_STATUS_FAILURES", 3, minimum=2, maximum=10)
 
 
 def log(message):
@@ -98,9 +106,14 @@ def format_vn_number(value):
 
 SCRAPE_QUEUE_COLUMNS = {
     "next_scrape_at": "DATETIME NULL AFTER last_scraped_at",
+    "last_checked_at": "DATETIME NULL AFTER last_scraped_at",
+    "next_check_at": "DATETIME NULL AFTER next_scrape_at",
     "blocked_until": "DATETIME NULL AFTER next_scrape_at",
     "retry_count": "INT NOT NULL DEFAULT 0 AFTER blocked_until",
+    "consecutive_failures": "INT NOT NULL DEFAULT 0 AFTER retry_count",
     "scrape_priority": "TINYINT NOT NULL DEFAULT 5 AFTER retry_count",
+    "availability_status": "ENUM('unknown', 'active', 'out_of_stock', 'temporarily_unavailable', 'discontinued', 'invalid_url', 'fetch_error', 'blocked_or_captcha') NOT NULL DEFAULT 'unknown' AFTER status",
+    "error_message": "VARCHAR(500) NULL AFTER availability_status",
 }
 
 
@@ -152,13 +165,33 @@ def minutes_from_now(minutes):
     return (datetime.now() + timedelta(minutes=int(minutes))).strftime("%Y-%m-%d %H:%M:%S")
 
 
+def sanitize_error_message(message):
+    text = re.sub(r"\s+", " ", str(message or "")).strip()
+    if not text:
+        return None
+    return text[:500]
+
+
 def get_retry_count(cursor, link_id):
     cursor.execute("SELECT retry_count FROM platform_links WHERE id=%s", (link_id,))
     return int(scalar(cursor.fetchone()) or 0)
 
 
+def get_consecutive_failures(cursor, link_id):
+    cursor.execute("SELECT consecutive_failures FROM platform_links WHERE id=%s", (link_id,))
+    return int(scalar(cursor.fetchone()) or 0)
+
+
 def retry_delay_minutes(base_minutes, retry_count):
     return min(int(base_minutes) * max(1, retry_count + 1), MAX_RETRY_DELAY_MINUTES)
+
+
+def finalize_availability_status(cursor, link_id, requested_status):
+    if requested_status not in {AVAILABILITY_DISCONTINUED, AVAILABILITY_TEMPORARILY_UNAVAILABLE}:
+        return requested_status
+    if get_consecutive_failures(cursor, link_id) + 1 >= FINAL_STATUS_FAILURES:
+        return requested_status
+    return AVAILABILITY_FETCH_ERROR
 
 
 def clean_price(raw_price_str):
@@ -277,18 +310,27 @@ def detect_captcha_or_login(driver):
     return None
 
 
-def detect_unavailable(driver):
+def detect_unavailable_status(driver):
     body_text = get_body_text(driver).lower()
-    markers = (
-        "not found",
-        "product not found",
-        "unavailable",
-        "sold out",
-        "s\u1ea3n ph\u1ea9m kh\u00f4ng t\u1ed3n t\u1ea1i",
-        "kh\u00f4ng t\u00ecm th\u1ea5y",
-        "\u0111\u00e3 b\u1ecb x\u00f3a",
-    )
-    return any(marker in body_text for marker in markers)
+    if any(marker in body_text for marker in ("sold out", "out of stock", "hết hàng", "het hang")):
+        return AVAILABILITY_OUT_OF_STOCK, "Sàn báo sản phẩm hết hàng"
+    if any(marker in body_text for marker in ("unavailable", "tạm ngừng", "tam ngung", "ngừng bán", "ngung ban")):
+        return AVAILABILITY_TEMPORARILY_UNAVAILABLE, "Sản phẩm tạm ngừng bán hoặc không khả dụng"
+    if any(
+        marker in body_text
+        for marker in (
+            "not found",
+            "product not found",
+            "sản phẩm không tồn tại",
+            "san pham khong ton tai",
+            "không tìm thấy",
+            "khong tim thay",
+            "đã bị xóa",
+            "da bi xoa",
+        )
+    ):
+        return AVAILABILITY_DISCONTINUED, "Sản phẩm không tồn tại hoặc đã bị xóa"
+    return None, None
 
 
 def save_debug_artifacts(driver, link_id, reason):
@@ -327,7 +369,7 @@ def wait_for_manual_clear(driver, reason):
     return detect_captcha_or_login(driver) is None
 
 
-def update_status(cursor, db, link_id, status, touch_time=True):
+def update_status(cursor, db, link_id, status, touch_time=True, availability_status=AVAILABILITY_FETCH_ERROR, error_message=None):
     try:
         db.ping(reconnect=True, attempts=3, delay=2)
     except Exception as exc:
@@ -336,12 +378,13 @@ def update_status(cursor, db, link_id, status, touch_time=True):
     if touch_time:
         now = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
         retry_count = get_retry_count(cursor, link_id)
+        final_availability_status = finalize_availability_status(cursor, link_id, availability_status)
 
         if int(status) == STATUS_CAPTCHA:
             blocked_until = minutes_from_now(CAPTCHA_COOLDOWN_MINUTES)
             next_scrape_at = blocked_until
             next_message = f"tạm nghỉ đến {next_scrape_at}"
-        elif int(status) == STATUS_NO_PRICE:
+        elif final_availability_status in {AVAILABILITY_OUT_OF_STOCK, AVAILABILITY_DISCONTINUED, AVAILABILITY_TEMPORARILY_UNAVAILABLE}:
             blocked_until = None
             next_scrape_at = minutes_from_now(NO_PRICE_RETRY_MINUTES)
             next_message = f"quét lại sau {NO_PRICE_RETRY_MINUTES} phút"
@@ -359,13 +402,28 @@ def update_status(cursor, db, link_id, status, touch_time=True):
             """
             UPDATE platform_links
             SET status=%s,
+                availability_status=%s,
+                error_message=%s,
                 last_scraped_at=%s,
+                last_checked_at=%s,
                 next_scrape_at=%s,
+                next_check_at=%s,
                 blocked_until=%s,
-                retry_count=retry_count + 1
+                retry_count=retry_count + 1,
+                consecutive_failures=consecutive_failures + 1
             WHERE id=%s
             """,
-            (status, now, next_scrape_at, blocked_until, link_id),
+            (
+                status,
+                final_availability_status,
+                sanitize_error_message(error_message),
+                now,
+                now,
+                next_scrape_at,
+                next_scrape_at,
+                blocked_until,
+                link_id,
+            ),
         )
         log(f"  [lịch quét] Link ID={link_id} sẽ {next_message}.")
     else:
@@ -390,10 +448,15 @@ def save_success(cursor, db, link_id, data):
             rating_average=%s,
             review_count=%s,
             status=%s,
+            availability_status=%s,
+            error_message=NULL,
             last_scraped_at=%s,
+            last_checked_at=%s,
             next_scrape_at=%s,
+            next_check_at=%s,
             blocked_until=NULL,
-            retry_count=0
+            retry_count=0,
+            consecutive_failures=0
         WHERE id=%s
         """,
         (
@@ -403,7 +466,10 @@ def save_success(cursor, db, link_id, data):
             data["rating_average"],
             data["review_count"],
             STATUS_SUCCESS,
+            AVAILABILITY_ACTIVE,
             now,
+            now,
+            next_scrape_at,
             next_scrape_at,
             link_id,
         ),
@@ -558,6 +624,7 @@ def fetch_shopee_links(cursor):
         WHERE platform_name = 'Shopee'
           AND is_active = 1
           AND (blocked_until IS NULL OR blocked_until <= NOW())
+          AND (next_check_at IS NULL OR next_check_at <= NOW())
           AND (next_scrape_at IS NULL OR next_scrape_at <= NOW())
         ORDER BY
           CASE
@@ -584,7 +651,7 @@ def handle_blocked_link(driver, cursor, db, link_id, reason):
         log("  [thủ công] Đã xử lý xác minh. Tiếp tục quét link này.")
         return True
 
-    update_status(cursor, db, link_id, STATUS_CAPTCHA)
+    update_status(cursor, db, link_id, STATUS_CAPTCHA, availability_status=AVAILABILITY_BLOCKED, error_message=f"Captcha hoặc đăng nhập: {reason}")
     log(
         "  [bị chặn] Link đã được đánh dấu status=4. "
         f"Bot sẽ tạm bỏ qua link này trong {CAPTCHA_COOLDOWN_MINUTES} phút."
@@ -664,15 +731,30 @@ def main():
                         break
                     continue
 
-                if not price_ready and detect_unavailable(driver):
+                unavailable_status, unavailable_message = detect_unavailable_status(driver)
+                if not price_ready and unavailable_status:
                     log("  [bỏ qua] Sản phẩm có vẻ đã ngừng bán hoặc bị xóa.")
-                    update_status(cursor, db, link_id, STATUS_NO_PRICE)
+                    update_status(
+                        cursor,
+                        db,
+                        link_id,
+                        STATUS_NO_PRICE,
+                        availability_status=unavailable_status,
+                        error_message=unavailable_message,
+                    )
                     continue
 
                 product_data = extract_product_data(driver)
                 if not product_data:
                     log("  [bỏ qua] Không trích xuất được giá Shopee hợp lệ.")
-                    update_status(cursor, db, link_id, STATUS_NO_PRICE)
+                    update_status(
+                        cursor,
+                        db,
+                        link_id,
+                        STATUS_NO_PRICE,
+                        availability_status=AVAILABILITY_FETCH_ERROR,
+                        error_message="Không trích xuất được giá Shopee hợp lệ",
+                    )
                     continue
 
                 save_success(cursor, db, link_id, product_data)
@@ -687,10 +769,10 @@ def main():
 
             except WebDriverException as exc:
                 log(f"  [lỗi] Lỗi trình duyệt: {exc}")
-                update_status(cursor, db, link_id, STATUS_ERROR)
+                update_status(cursor, db, link_id, STATUS_ERROR, availability_status=AVAILABILITY_FETCH_ERROR, error_message=str(exc))
             except Exception as exc:
                 log(f"  [lỗi] Lỗi bất ngờ khi quét link: {exc}")
-                update_status(cursor, db, link_id, STATUS_ERROR)
+                update_status(cursor, db, link_id, STATUS_ERROR, availability_status=AVAILABILITY_FETCH_ERROR, error_message=str(exc))
 
             time.sleep(random.uniform(MIN_DELAY_SECONDS, MAX_DELAY_SECONDS))
 

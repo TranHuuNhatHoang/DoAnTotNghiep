@@ -1,7 +1,7 @@
 import re
 import sys
 import time
-from datetime import datetime
+from datetime import datetime, timedelta
 from html import unescape
 
 import mysql.connector
@@ -25,6 +25,13 @@ STATUS_ERROR = 3
 EXIT_OK = 0
 EXIT_FATAL = 1
 
+AVAILABILITY_UNKNOWN = "unknown"
+AVAILABILITY_ACTIVE = "active"
+AVAILABILITY_TEMPORARILY_UNAVAILABLE = "temporarily_unavailable"
+AVAILABILITY_DISCONTINUED = "discontinued"
+AVAILABILITY_INVALID_URL = "invalid_url"
+AVAILABILITY_FETCH_ERROR = "fetch_error"
+
 
 def env_int(name, default, minimum=None, maximum=None):
     import os
@@ -44,6 +51,11 @@ TIKI_BATCH_LIMIT = env_int("TIKI_BATCH_LIMIT", 0, minimum=0)
 TIKI_REQUEST_TIMEOUT = env_int("TIKI_REQUEST_TIMEOUT", 12, minimum=3, maximum=60)
 TIKI_RETRY_COUNT = env_int("TIKI_RETRY_COUNT", 2, minimum=0, maximum=5)
 TIKI_LOCK_STALE_MINUTES = env_int("TIKI_LOCK_STALE_MINUTES", 60, minimum=10)
+TIKI_SUCCESS_INTERVAL_MINUTES = env_int("TIKI_SUCCESS_INTERVAL_MINUTES", 240, minimum=30)
+TIKI_ERROR_RETRY_MINUTES = env_int("TIKI_ERROR_RETRY_MINUTES", 60, minimum=15)
+TIKI_NO_PRICE_RETRY_MINUTES = env_int("TIKI_NO_PRICE_RETRY_MINUTES", 720, minimum=30)
+TIKI_FINAL_STATUS_FAILURES = env_int("TIKI_FINAL_STATUS_FAILURES", 3, minimum=2, maximum=10)
+TIKI_MAX_RETRY_DELAY_MINUTES = env_int("TIKI_MAX_RETRY_DELAY_MINUTES", 1440, minimum=60)
 
 
 def log(message):
@@ -55,6 +67,22 @@ def format_vn_number(value):
         return f"{int(value):,}".replace(",", ".")
     except (TypeError, ValueError):
         return str(value)
+
+
+def minutes_from_now(minutes):
+    return (datetime.now() + timedelta(minutes=int(minutes))).strftime("%Y-%m-%d %H:%M:%S")
+
+
+def sanitize_error_message(message):
+    text = re.sub(r"\s+", " ", str(message or "")).strip()
+    if not text:
+        return None
+    return text[:500]
+
+
+def retry_delay_minutes(base_minutes, failure_count):
+    multiplier = max(1, int(failure_count or 0))
+    return min(int(base_minutes) * multiplier, TIKI_MAX_RETRY_DELAY_MINUTES)
 
 
 def extract_tiki_ids(url):
@@ -160,7 +188,11 @@ def request_tiki_api(api_url):
             if response.status_code == 200:
                 return response.json(), None
             if response.status_code in {404, 410}:
-                return None, {"status": STATUS_NO_PRICE, "message": f"HTTP {response.status_code}"}
+                return None, {
+                    "status": STATUS_NO_PRICE,
+                    "availability_status": AVAILABILITY_DISCONTINUED,
+                    "message": f"HTTP {response.status_code}",
+                }
             last_error = f"HTTP {response.status_code}"
         except requests.exceptions.RequestException as exc:
             last_error = str(exc)
@@ -177,17 +209,29 @@ def scrape_tiki_data(product_url):
     api_url = build_tiki_api_url(product_url)
     if not api_url:
         log("  [lỗi] Không trích xuất được Product ID từ link Tiki.")
-        return {"status": STATUS_ERROR}
+        return {
+            "status": STATUS_ERROR,
+            "availability_status": AVAILABILITY_INVALID_URL,
+            "error_message": "URL Tiki không hợp lệ hoặc thiếu product id",
+        }
 
     data, error = request_tiki_api(api_url)
     if error:
         log(f"  [lỗi] Không lấy được dữ liệu Tiki: {error['message']}")
-        return {"status": error["status"]}
+        return {
+            "status": error["status"],
+            "availability_status": error.get("availability_status", AVAILABILITY_FETCH_ERROR),
+            "error_message": error["message"],
+        }
 
     current_price = data.get("price") or 0
     if current_price <= 0:
         log("  [bỏ qua] API Tiki không trả về giá hợp lệ.")
-        return {"status": STATUS_NO_PRICE}
+        return {
+            "status": STATUS_NO_PRICE,
+            "availability_status": AVAILABILITY_TEMPORARILY_UNAVAILABLE,
+            "error_message": "API Tiki không trả về giá hợp lệ",
+        }
 
     result = {
         "name": data.get("name"),
@@ -199,6 +243,7 @@ def scrape_tiki_data(product_url):
         "review_count": data.get("review_count", 0),
         "specifications": extract_specifications(data),
         "status": STATUS_SUCCESS,
+        "availability_status": AVAILABILITY_ACTIVE,
     }
 
     log(f"  [thành công] Giá hiện tại: {format_vn_number(current_price)} đ")
@@ -213,6 +258,8 @@ def fetch_tiki_links(cursor):
     sql = (
         "SELECT id, product_id, product_url FROM platform_links "
         "WHERE platform_name = 'Tiki' AND is_active = 1 "
+        "AND (next_check_at IS NULL OR next_check_at <= NOW()) "
+        "AND (next_scrape_at IS NULL OR next_scrape_at <= NOW()) "
         "ORDER BY last_scraped_at ASC"
     )
     if TIKI_BATCH_LIMIT > 0:
@@ -274,6 +321,7 @@ def save_product_specifications(cursor, product_id, specifications):
 
 def save_tiki_data(cursor, conn, link, data):
     now = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+    next_time = minutes_from_now(TIKI_SUCCESS_INTERVAL_MINUTES)
     link_id = link["id"]
     product_id = link["product_id"]
 
@@ -286,7 +334,15 @@ def save_tiki_data(cursor, conn, link, data):
             rating_average = %s,
             review_count = %s,
             status = %s,
-            last_scraped_at = %s
+            availability_status = %s,
+            error_message = NULL,
+            last_scraped_at = %s,
+            last_checked_at = %s,
+            next_scrape_at = %s,
+            next_check_at = %s,
+            blocked_until = NULL,
+            retry_count = 0,
+            consecutive_failures = 0
         WHERE id = %s
         """,
         (
@@ -296,7 +352,11 @@ def save_tiki_data(cursor, conn, link, data):
             data["rating_average"],
             data["review_count"],
             data["status"],
+            data.get("availability_status", AVAILABILITY_ACTIVE),
             now,
+            now,
+            next_time,
+            next_time,
             link_id,
         ),
     )
@@ -319,11 +379,62 @@ def save_tiki_data(cursor, conn, link, data):
     conn.commit()
 
 
-def update_status(cursor, conn, link_id, status):
+def get_consecutive_failures(cursor, link_id):
+    cursor.execute("SELECT consecutive_failures FROM platform_links WHERE id = %s", (link_id,))
+    row = cursor.fetchone()
+    if not row:
+        return 0
+    return int(row.get("consecutive_failures") or 0)
+
+
+def finalize_availability_status(cursor, link_id, requested_status):
+    if requested_status not in {AVAILABILITY_DISCONTINUED, AVAILABILITY_TEMPORARILY_UNAVAILABLE}:
+        return requested_status
+
+    next_failure_count = get_consecutive_failures(cursor, link_id) + 1
+    if next_failure_count >= TIKI_FINAL_STATUS_FAILURES:
+        return requested_status
+    return AVAILABILITY_FETCH_ERROR
+
+
+def update_status(cursor, conn, link_id, status, availability_status=AVAILABILITY_FETCH_ERROR, error_message=None):
     now = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+    final_availability_status = finalize_availability_status(cursor, link_id, availability_status)
+    next_failure_count = get_consecutive_failures(cursor, link_id) + 1
+
+    if final_availability_status == AVAILABILITY_INVALID_URL:
+        delay_minutes = TIKI_MAX_RETRY_DELAY_MINUTES
+    elif final_availability_status in {AVAILABILITY_DISCONTINUED, AVAILABILITY_TEMPORARILY_UNAVAILABLE}:
+        delay_minutes = TIKI_NO_PRICE_RETRY_MINUTES
+    else:
+        delay_minutes = retry_delay_minutes(TIKI_ERROR_RETRY_MINUTES, next_failure_count)
+
+    next_time = minutes_from_now(delay_minutes)
     cursor.execute(
-        "UPDATE platform_links SET status = %s, last_scraped_at = %s WHERE id = %s",
-        (status, now, link_id),
+        """
+        UPDATE platform_links
+        SET status = %s,
+            availability_status = %s,
+            error_message = %s,
+            last_scraped_at = %s,
+            last_checked_at = %s,
+            next_scrape_at = %s,
+            next_check_at = %s,
+            blocked_until = NULL,
+            retry_count = retry_count + 1,
+            consecutive_failures = consecutive_failures + 1
+        WHERE id = %s
+        """,
+        (
+            status,
+            final_availability_status,
+            sanitize_error_message(error_message),
+            now,
+            now,
+            next_time,
+            next_time,
+            link_id,
+        ),
     )
     conn.commit()
 
@@ -360,10 +471,12 @@ def update_tiki_prices_to_db():
                     log("  [thành công] Đã lưu dữ liệu Tiki vào database.")
                 else:
                     status = data.get("status", STATUS_ERROR) if data else STATUS_ERROR
-                    update_status(cursor, conn, link["id"], status)
+                    availability_status = data.get("availability_status", AVAILABILITY_FETCH_ERROR) if data else AVAILABILITY_FETCH_ERROR
+                    error_message = data.get("error_message", "Không lấy được dữ liệu Tiki") if data else "Không lấy được dữ liệu Tiki"
+                    update_status(cursor, conn, link["id"], status, availability_status, error_message)
                     log(f"  [bỏ qua] Không cập nhật được link ID={link['id']}. Trạng thái={status}.")
             except Exception as exc:
-                update_status(cursor, conn, link["id"], STATUS_ERROR)
+                update_status(cursor, conn, link["id"], STATUS_ERROR, AVAILABILITY_FETCH_ERROR, str(exc))
                 log(f"  [lỗi] Lỗi khi xử lý link ID={link['id']}: {exc}")
 
         log("Bot Tiki đã hoàn tất lượt cập nhật.")

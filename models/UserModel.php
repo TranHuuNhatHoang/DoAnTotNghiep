@@ -6,15 +6,6 @@ class UserModel {
         $this->conn = $db;
     }
 
-    // Kiểm tra Email đã tồn tại chưa (Hàm này có thể giữ lại để dùng cho các mục đích khác)
-    public function emailExists($email) {
-        $stmt = $this->conn->prepare("SELECT id FROM users WHERE email = ?");
-        $stmt->bind_param("s", $email);
-        $stmt->execute();
-        $result = $stmt->get_result();
-        return $result->num_rows > 0;
-    }
-
     // NÂNG CẤP LOGIC: Xử lý triệt để lỗi "Kẹt tài khoản chưa xác thực"
     public function register($email, $password) {
         $password_hash = password_hash($password, PASSWORD_DEFAULT);

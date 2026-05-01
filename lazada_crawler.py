@@ -3,7 +3,7 @@ import random
 import re
 import sys
 import time
-from datetime import datetime
+from datetime import datetime, timedelta
 from pathlib import Path
 
 import mysql.connector
@@ -33,6 +33,13 @@ STATUS_CAPTCHA = 4
 EXIT_OK = 0
 EXIT_FATAL = 1
 EXIT_CAPTCHA = 2
+
+AVAILABILITY_ACTIVE = "active"
+AVAILABILITY_OUT_OF_STOCK = "out_of_stock"
+AVAILABILITY_TEMPORARILY_UNAVAILABLE = "temporarily_unavailable"
+AVAILABILITY_DISCONTINUED = "discontinued"
+AVAILABILITY_FETCH_ERROR = "fetch_error"
+AVAILABILITY_BLOCKED = "blocked_or_captcha"
 
 BASE_DIR = Path(__file__).resolve().parent
 DEBUG_DIR = BASE_DIR / "storage" / "bot_debug"
@@ -81,6 +88,11 @@ CHUNK_DELAY_SECONDS = env_int("LAZADA_CHUNK_DELAY_SECONDS", 15, minimum=0)
 LOAD_IMAGES = env_bool("LAZADA_LOAD_IMAGES", False)
 PROFILE_NAME = os.getenv("LAZADA_PROFILE_NAME", "master_profile")
 LOCK_STALE_MINUTES = env_int("LAZADA_LOCK_STALE_MINUTES", 180, minimum=30)
+SUCCESS_INTERVAL_MINUTES = env_int("LAZADA_SUCCESS_INTERVAL_MINUTES", 240, minimum=30)
+NO_PRICE_RETRY_MINUTES = env_int("LAZADA_NO_PRICE_RETRY_MINUTES", 720, minimum=30)
+ERROR_RETRY_MINUTES = env_int("LAZADA_ERROR_RETRY_MINUTES", 60, minimum=15)
+MAX_RETRY_DELAY_MINUTES = env_int("LAZADA_MAX_RETRY_DELAY_MINUTES", 1440, minimum=60)
+FINAL_STATUS_FAILURES = env_int("LAZADA_FINAL_STATUS_FAILURES", 3, minimum=2, maximum=10)
 
 
 def log(message):
@@ -92,6 +104,29 @@ def format_vn_number(value):
         return f"{int(value):,}".replace(",", ".")
     except (TypeError, ValueError):
         return str(value)
+
+
+def minutes_from_now(minutes):
+    return (datetime.now() + timedelta(minutes=int(minutes))).strftime("%Y-%m-%d %H:%M:%S")
+
+
+def sanitize_error_message(message):
+    text = re.sub(r"\s+", " ", str(message or "")).strip()
+    if not text:
+        return None
+    return text[:500]
+
+
+def scalar(row):
+    if row is None:
+        return None
+    if isinstance(row, dict):
+        return next(iter(row.values()))
+    return row[0]
+
+
+def retry_delay_minutes(base_minutes, failure_count):
+    return min(int(base_minutes) * max(1, int(failure_count or 0)), MAX_RETRY_DELAY_MINUTES)
 
 
 def clean_price(raw_price_str):
@@ -250,7 +285,7 @@ def handle_blocked_link(driver, cursor, db, link_id, reason):
         log("  [thủ công] Đã xử lý xác minh. Tiếp tục quét link này.")
         return True
 
-    update_status(cursor, db, link_id, STATUS_CAPTCHA)
+    update_status(cursor, db, link_id, STATUS_CAPTCHA, AVAILABILITY_BLOCKED, f"Captcha hoặc đăng nhập: {reason}")
     log(
         "  [bị chặn] Link đã được đánh dấu status=4. "
         f"Bot sẽ tạm bỏ qua link này trong {CAPTCHA_COOLDOWN_MINUTES} phút."
@@ -269,6 +304,17 @@ def shallow_scroll(driver):
         pass
 
 
+def detect_unavailable_status(driver):
+    body_text = get_body_text(driver).lower()
+    if any(marker in body_text for marker in ("hết hàng", "sold out", "out of stock")):
+        return AVAILABILITY_OUT_OF_STOCK, "Sàn báo sản phẩm hết hàng"
+    if any(marker in body_text for marker in ("tạm ngừng", "ngừng kinh doanh", "không khả dụng", "unavailable")):
+        return AVAILABILITY_TEMPORARILY_UNAVAILABLE, "Sản phẩm tạm ngừng bán hoặc không khả dụng"
+    if any(marker in body_text for marker in ("not found", "không tìm thấy", "sản phẩm không tồn tại", "removed", "đã bị xóa")):
+        return AVAILABILITY_DISCONTINUED, "Sản phẩm không tồn tại hoặc đã bị xóa"
+    return None, None
+
+
 def fetch_lazada_links(cursor):
     cursor.execute(
         f"""
@@ -276,13 +322,12 @@ def fetch_lazada_links(cursor):
         FROM platform_links
         WHERE platform_name = 'Lazada'
           AND is_active = 1
-          AND (
-              status <> {STATUS_CAPTCHA}
-              OR last_scraped_at IS NULL
-              OR last_scraped_at < DATE_SUB(NOW(), INTERVAL {CAPTCHA_COOLDOWN_MINUTES} MINUTE)
-          )
+          AND (blocked_until IS NULL OR blocked_until <= NOW())
+          AND (next_check_at IS NULL OR next_check_at <= NOW())
+          AND (next_scrape_at IS NULL OR next_scrape_at <= NOW())
         ORDER BY
           CASE WHEN status = 0 THEN 0 WHEN last_scraped_at IS NULL THEN 1 ELSE 2 END,
+          next_check_at ASC,
           last_scraped_at ASC
         LIMIT {BATCH_LIMIT}
         """
@@ -290,16 +335,65 @@ def fetch_lazada_links(cursor):
     return cursor.fetchall()
 
 
-def update_status(cursor, db, link_id, status):
+def get_consecutive_failures(cursor, link_id):
+    cursor.execute("SELECT consecutive_failures FROM platform_links WHERE id=%s", (link_id,))
+    return int(scalar(cursor.fetchone()) or 0)
+
+
+def finalize_availability_status(cursor, link_id, requested_status):
+    if requested_status not in {AVAILABILITY_DISCONTINUED, AVAILABILITY_TEMPORARILY_UNAVAILABLE}:
+        return requested_status
+    if get_consecutive_failures(cursor, link_id) + 1 >= FINAL_STATUS_FAILURES:
+        return requested_status
+    return AVAILABILITY_FETCH_ERROR
+
+
+def update_status(cursor, db, link_id, status, availability_status=AVAILABILITY_FETCH_ERROR, error_message=None):
     try:
         db.ping(reconnect=True, attempts=3, delay=2)
     except Exception as exc:
         log(f"  [!] Cảnh báo kết nối lại database: {exc}")
 
     now = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+    final_availability_status = finalize_availability_status(cursor, link_id, availability_status)
+    next_failure_count = get_consecutive_failures(cursor, link_id) + 1
+
+    if int(status) == STATUS_CAPTCHA:
+        blocked_until = minutes_from_now(CAPTCHA_COOLDOWN_MINUTES)
+        next_time = blocked_until
+    elif final_availability_status in {AVAILABILITY_OUT_OF_STOCK, AVAILABILITY_DISCONTINUED, AVAILABILITY_TEMPORARILY_UNAVAILABLE}:
+        blocked_until = None
+        next_time = minutes_from_now(NO_PRICE_RETRY_MINUTES)
+    else:
+        blocked_until = None
+        next_time = minutes_from_now(retry_delay_minutes(ERROR_RETRY_MINUTES, next_failure_count))
+
     cursor.execute(
-        "UPDATE platform_links SET status=%s, last_scraped_at=%s WHERE id=%s",
-        (status, now, link_id),
+        """
+        UPDATE platform_links
+        SET status=%s,
+            availability_status=%s,
+            error_message=%s,
+            last_scraped_at=%s,
+            last_checked_at=%s,
+            next_scrape_at=%s,
+            next_check_at=%s,
+            blocked_until=%s,
+            retry_count=retry_count + 1,
+            consecutive_failures=consecutive_failures + 1
+        WHERE id=%s
+        """,
+        (
+            status,
+            final_availability_status,
+            sanitize_error_message(error_message),
+            now,
+            now,
+            next_time,
+            next_time,
+            blocked_until,
+            link_id,
+        ),
     )
     db.commit()
 
@@ -311,6 +405,7 @@ def save_success(cursor, db, link_id, data):
         log(f"  [!] Cảnh báo kết nối lại database: {exc}")
 
     now = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+    next_time = minutes_from_now(SUCCESS_INTERVAL_MINUTES)
     cursor.execute(
         """
         UPDATE platform_links
@@ -320,7 +415,15 @@ def save_success(cursor, db, link_id, data):
             rating_average=%s,
             review_count=%s,
             status=%s,
-            last_scraped_at=%s
+            availability_status=%s,
+            error_message=NULL,
+            last_scraped_at=%s,
+            last_checked_at=%s,
+            next_scrape_at=%s,
+            next_check_at=%s,
+            blocked_until=NULL,
+            retry_count=0,
+            consecutive_failures=0
         WHERE id=%s
         """,
         (
@@ -330,7 +433,11 @@ def save_success(cursor, db, link_id, data):
             data["rating_average"],
             data["review_count"],
             STATUS_SUCCESS,
+            AVAILABILITY_ACTIVE,
             now,
+            now,
+            next_time,
+            next_time,
             link_id,
         ),
     )
@@ -504,7 +611,15 @@ def run_lazada_crawler():
 
                         data = extract_lazada_data(driver)
                         if not data:
-                            update_status(cursor, db, link_id, STATUS_NO_PRICE)
+                            availability_status, unavailable_message = detect_unavailable_status(driver)
+                            update_status(
+                                cursor,
+                                db,
+                                link_id,
+                                STATUS_NO_PRICE,
+                                availability_status or AVAILABILITY_FETCH_ERROR,
+                                unavailable_message or "Không trích xuất được giá Lazada hợp lệ",
+                            )
                             log("  [bỏ qua] Không trích xuất được giá Lazada hợp lệ.")
                             continue
 
@@ -521,10 +636,10 @@ def run_lazada_crawler():
                         log("  [thành công] Đã lưu dữ liệu vào database.")
 
                     except WebDriverException as exc:
-                        update_status(cursor, db, link_id, STATUS_ERROR)
+                        update_status(cursor, db, link_id, STATUS_ERROR, AVAILABILITY_FETCH_ERROR, str(exc))
                         log(f"  [lỗi] Lỗi trình duyệt khi quét link: {exc}")
                     except Exception as exc:
-                        update_status(cursor, db, link_id, STATUS_ERROR)
+                        update_status(cursor, db, link_id, STATUS_ERROR, AVAILABILITY_FETCH_ERROR, str(exc))
                         log(f"  [lỗi] Lỗi bất ngờ khi quét link: {exc}")
 
                     if exit_code == EXIT_CAPTCHA and STOP_ON_CAPTCHA:
