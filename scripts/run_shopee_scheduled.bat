@@ -11,7 +11,7 @@ set "LOG_FILE=storage\bot_logs\shopee_scheduled.log"
 
 echo.>> "%LOG_FILE%"
 echo ==== %DATE% %TIME% - Shopee scheduled run ====>> "%LOG_FILE%"
-%PYTHON_BIN% shopee_crawler.py >> "%LOG_FILE%" 2>&1
+%PYTHON_BIN% crawlers\shopee_crawler.py >> "%LOG_FILE%" 2>&1
 set "EXIT_CODE=%ERRORLEVEL%"
 echo ==== Exit code: %EXIT_CODE% ====>> "%LOG_FILE%"
 

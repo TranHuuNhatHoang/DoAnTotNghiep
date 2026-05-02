@@ -11,20 +11,20 @@ cd C:\xampp\htdocs\DoAnTotNghiep
 
 echo.
 echo [1/3] Dang khoi dong Bot Tiki...
-python tiki_scraper.py
+python crawlers\tiki_scraper.py
 
 :: Tạm nghỉ 5 giây cho hệ thống xả RAM
 timeout /t 5 /nobreak > NUL
 
 echo.
 echo [2/3] Dang khoi dong Bot Shopee...
-python shopee_crawler.py
+python crawlers\shopee_crawler.py
 
 timeout /t 5 /nobreak > NUL
 
 echo.
 echo [3/3] Dang khoi dong Bot Lazada...
-python lazada_crawler.py
+python crawlers\lazada_crawler.py
 
 echo.
 echo ===================================================

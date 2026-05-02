@@ -1,5 +1,7 @@
 from pathlib import Path
 
+PROJECT_ROOT = Path(__file__).resolve().parent.parent
+
 try:
     import msvcrt
 except ImportError:
@@ -14,7 +16,7 @@ except ImportError:
 class FileLock:
     def __init__(self, name, stale_after_minutes=120):
         self.name = "".join(ch if ch.isalnum() or ch in {"_", "-"} else "_" for ch in name)
-        self.path = Path(__file__).resolve().parent / "storage" / "bot_locks" / f"{self.name}.lock"
+        self.path = PROJECT_ROOT / "storage" / "bot_locks" / f"{self.name}.lock"
         self.handle = None
 
     def acquire(self):

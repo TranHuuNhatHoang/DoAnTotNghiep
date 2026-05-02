@@ -98,8 +98,27 @@ class ProductController {
         }
 
         // Sắp xếp platforms theo giá từ thấp đến cao (Phục vụ bảng so sánh)
+        foreach ($platforms as &$platform) {
+            $hasValidPrice = (int) ($platform['has_valid_price'] ?? 0) === 1;
+            $platform['has_valid_price'] = $hasValidPrice ? 1 : 0;
+            if (!$hasValidPrice) {
+                $platform['current_price'] = 0;
+            }
+        }
+        unset($platform);
+
         usort($platforms, function($a, $b) {
-            return $a['current_price'] <=> $b['current_price'];
+            $validCompare = ((int) ($b['has_valid_price'] ?? 0)) <=> ((int) ($a['has_valid_price'] ?? 0));
+            if ($validCompare !== 0) {
+                return $validCompare;
+            }
+
+            $priceCompare = ((int) ($a['current_price'] ?? 0)) <=> ((int) ($b['current_price'] ?? 0));
+            if ($priceCompare !== 0) {
+                return $priceCompare;
+            }
+
+            return strcmp((string) ($a['platform_name'] ?? ''), (string) ($b['platform_name'] ?? ''));
         });
 
         require_once 'views/user/detail.php';

@@ -11,7 +11,7 @@ set "LOG_FILE=storage\bot_logs\tiki_scheduled.log"
 
 echo.>> "%LOG_FILE%"
 echo ==== %DATE% %TIME% - Tiki scheduled run ====>> "%LOG_FILE%"
-%PYTHON_BIN% tiki_scraper.py >> "%LOG_FILE%" 2>&1
+%PYTHON_BIN% crawlers\tiki_scraper.py >> "%LOG_FILE%" 2>&1
 set "EXIT_CODE=%ERRORLEVEL%"
 echo ==== Exit code: %EXIT_CODE% ====>> "%LOG_FILE%"
 

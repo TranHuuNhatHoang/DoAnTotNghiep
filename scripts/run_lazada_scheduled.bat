@@ -11,7 +11,7 @@ set "LOG_FILE=storage\bot_logs\lazada_scheduled.log"
 
 echo.>> "%LOG_FILE%"
 echo ==== %DATE% %TIME% - Lazada scheduled run ====>> "%LOG_FILE%"
-%PYTHON_BIN% lazada_crawler.py >> "%LOG_FILE%" 2>&1
+%PYTHON_BIN% crawlers\lazada_crawler.py >> "%LOG_FILE%" 2>&1
 set "EXIT_CODE=%ERRORLEVEL%"
 echo ==== Exit code: %EXIT_CODE% ====>> "%LOG_FILE%"
 

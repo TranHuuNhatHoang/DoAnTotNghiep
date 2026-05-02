@@ -38,10 +38,10 @@ class BotController {
 
         $type = $_GET['type'] ?? '';
         $scripts = [
-            'shopee' => 'shopee_crawler.py',
-            'tiki' => 'tiki_scraper.py',
-            'lazada' => 'lazada_crawler.py',
-            'matcher' => 'multi_platform_matcher.py',
+            'shopee' => 'crawlers/shopee_crawler.py',
+            'tiki' => 'crawlers/tiki_scraper.py',
+            'lazada' => 'crawlers/lazada_crawler.py',
+            'matcher' => 'crawlers/multi_platform_matcher.py',
         ];
         $botNames = [
             'shopee' => 'Shopee Crawler',

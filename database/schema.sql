@@ -14,10 +14,12 @@ CREATE TABLE IF NOT EXISTS categories (
 CREATE TABLE IF NOT EXISTS products (
   id INT AUTO_INCREMENT PRIMARY KEY,
   name VARCHAR(500) NOT NULL,
+  normalized_name VARCHAR(500) NULL,
   description TEXT NULL,
   category_id INT NULL,
   thumbnail_url TEXT NULL,
   created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+  KEY idx_products_normalized_name (normalized_name),
   CONSTRAINT fk_products_category
     FOREIGN KEY (category_id) REFERENCES categories(id)
     ON DELETE SET NULL
@@ -55,6 +57,9 @@ CREATE TABLE IF NOT EXISTS platform_links (
   product_id INT NOT NULL,
   platform_name ENUM('Tiki', 'Shopee', 'Lazada') NOT NULL,
   product_url TEXT NOT NULL,
+  platform_product_id VARCHAR(120) NULL,
+  normalized_url TEXT NULL,
+  url_hash CHAR(40) NULL,
   current_price INT NOT NULL DEFAULT 0,
   original_price INT NULL,
   historical_sold INT NOT NULL DEFAULT 0,
@@ -75,7 +80,11 @@ CREATE TABLE IF NOT EXISTS platform_links (
   scrape_priority TINYINT NOT NULL DEFAULT 5,
   created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
   UNIQUE KEY uq_platform_product (product_id, platform_name),
+  UNIQUE KEY uq_platform_product_id (platform_name, platform_product_id),
+  UNIQUE KEY uq_platform_url_hash (platform_name, url_hash),
   KEY idx_platform_active (platform_name, is_active),
+  KEY idx_platform_product_id (platform_name, platform_product_id),
+  KEY idx_platform_url_hash (platform_name, url_hash),
   KEY idx_platform_scrape_queue (platform_name, is_active, blocked_until, next_scrape_at, scrape_priority, last_scraped_at),
   KEY idx_platform_link_availability (platform_name, is_active, availability_status, status, next_check_at),
   CONSTRAINT fk_platform_links_product

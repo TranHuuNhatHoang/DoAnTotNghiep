@@ -30,6 +30,9 @@ $sql = "
     JOIN products p ON pa.product_id = p.id
     JOIN platform_links pl ON pa.product_id = pl.product_id
     WHERE pa.is_notified = 0 
+      AND pl.is_active = 1
+      AND pl.status = 1
+      AND pl.availability_status = 'active'
       AND pl.current_price <= pa.target_price
       AND pl.current_price > 0
     ORDER BY pl.current_price ASC

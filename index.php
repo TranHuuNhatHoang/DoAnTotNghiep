@@ -66,6 +66,8 @@ $routes = [
                 'add' => 'add',
                 'update' => 'update',
                 'delete' => 'delete',
+                'attachduplicatelinks' => 'attachDuplicateLinks',
+                'restoreduplicateform' => 'restoreDuplicateForm',
             ],
         ],
         'admincategory' => [

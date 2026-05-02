@@ -6,6 +6,8 @@ import time
 import os
 from thefuzz import fuzz # Thư viện so khớp chuỗi
 import sys
+from pathlib import Path
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 from app_config import get_chrome_version_main, get_db_config, get_profile_path
 sys.stdout.reconfigure(encoding='utf-8')
 

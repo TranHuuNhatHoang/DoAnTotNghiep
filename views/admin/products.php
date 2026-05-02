@@ -1,9 +1,28 @@
 <?php
 $products = $products ?? [];
 $categories = $categories ?? [];
+$oldProductForm = $_SESSION['old_product_form'] ?? [];
+$openProductModal = $_SESSION['open_product_modal'] ?? '';
+if (!is_array($oldProductForm)) {
+    $oldProductForm = [];
+}
+unset($_SESSION['old_product_form'], $_SESSION['open_product_modal']);
 
 function e_admin_product($value) {
     return htmlspecialchars((string) $value, ENT_QUOTES, 'UTF-8');
+}
+
+function admin_product_old_value($formData, $key, $default = '') {
+    return $formData[$key] ?? $default;
+}
+
+function admin_product_old_link($formData, $platform) {
+    foreach (($formData['links'] ?? []) as $link) {
+        if (($link['platform'] ?? '') === $platform) {
+            return $link['url'] ?? '';
+        }
+    }
+    return '';
 }
 
 function admin_product_date($value) {
@@ -97,6 +116,12 @@ function admin_product_date($value) {
                 <i class="fas fa-plus me-2"></i>Thêm sản phẩm
             </button>
         </div>
+
+        <?php if (!empty($_SESSION['admin_error'])): ?>
+            <div class="alert alert-danger">
+                <?php echo e_admin_product($_SESSION['admin_error']); unset($_SESSION['admin_error']); ?>
+            </div>
+        <?php endif; ?>
 
         <section class="admin-card">
             <div class="table-responsive">
@@ -203,20 +228,40 @@ function admin_product_date($value) {
                 <div class="row g-3">
                     <div class="col-md-8">
                         <label class="form-label fw-bold">Tên sản phẩm</label>
-                        <input type="text" name="name" class="form-control" required placeholder="Nhập tên sản phẩm chính xác để bot tìm tốt hơn">
+                        <input type="text" name="name" class="form-control" required placeholder="Nhập tên sản phẩm chính xác để bot tìm tốt hơn" value="<?php echo e_admin_product(admin_product_old_value($oldProductForm, 'name')); ?>">
                     </div>
                     <div class="col-md-4">
                         <label class="form-label fw-bold">Danh mục</label>
                         <select name="category_id" class="form-select">
                             <option value="0">Chọn danh mục</option>
                             <?php foreach ($categories as $cat): ?>
-                                <option value="<?php echo (int) $cat['id']; ?>"><?php echo e_admin_product($cat['name']); ?></option>
+                                <option value="<?php echo (int) $cat['id']; ?>" <?php echo (int) admin_product_old_value($oldProductForm, 'category_id', 0) === (int) $cat['id'] ? 'selected' : ''; ?>><?php echo e_admin_product($cat['name']); ?></option>
                             <?php endforeach; ?>
                         </select>
                     </div>
                     <div class="col-12">
                         <label class="form-label fw-bold">Mô tả tóm tắt</label>
-                        <textarea name="description" class="form-control" rows="4" placeholder="Nhập cấu hình, phiên bản hoặc điểm nhận dạng"></textarea>
+                        <textarea name="description" class="form-control" rows="4" placeholder="Nhập cấu hình, phiên bản hoặc điểm nhận dạng"><?php echo e_admin_product(admin_product_old_value($oldProductForm, 'description')); ?></textarea>
+                    </div>
+                    <div class="col-12">
+                        <div class="border rounded-3 p-3 bg-light">
+                            <div class="fw-bold mb-2">Link sàn để kiểm tra trùng</div>
+                            <div class="row g-3">
+                                <div class="col-md-4">
+                                    <label class="form-label">Link Tiki</label>
+                                    <input type="url" name="tiki_url" class="form-control" placeholder="https://tiki.vn/..." value="<?php echo e_admin_product(admin_product_old_link($oldProductForm, 'Tiki')); ?>">
+                                </div>
+                                <div class="col-md-4">
+                                    <label class="form-label">Link Shopee</label>
+                                    <input type="url" name="shopee_url" class="form-control" placeholder="https://shopee.vn/..." value="<?php echo e_admin_product(admin_product_old_link($oldProductForm, 'Shopee')); ?>">
+                                </div>
+                                <div class="col-md-4">
+                                    <label class="form-label">Link Lazada</label>
+                                    <input type="url" name="lazada_url" class="form-control" placeholder="https://www.lazada.vn/..." value="<?php echo e_admin_product(admin_product_old_link($oldProductForm, 'Lazada')); ?>">
+                                </div>
+                            </div>
+                            <div class="form-text mt-2">Hệ thống sẽ kiểm tra trùng link/product id trước khi tạo sản phẩm.</div>
+                        </div>
                     </div>
                 </div>
             </div>
@@ -274,5 +319,15 @@ function admin_product_date($value) {
     });
 </script>
 <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
+<?php if ($openProductModal === 'add'): ?>
+<script>
+    (() => {
+        const addModal = document.getElementById('addProductModal');
+        if (addModal && window.bootstrap) {
+            bootstrap.Modal.getOrCreateInstance(addModal).show();
+        }
+    })();
+</script>
+<?php endif; ?>
 </body>
 </html>

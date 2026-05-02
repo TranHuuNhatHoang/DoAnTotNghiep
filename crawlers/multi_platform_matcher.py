@@ -28,8 +28,8 @@ EXIT_OK = 0
 EXIT_FATAL = 1
 EXIT_CAPTCHA = 2
 
-BASE_DIR = Path(__file__).resolve().parent
-DEBUG_DIR = BASE_DIR / "storage" / "bot_debug"
+PROJECT_ROOT = Path(__file__).resolve().parent.parent
+DEBUG_DIR = PROJECT_ROOT / "storage" / "bot_debug"
 
 
 def env_bool(name, default=False):

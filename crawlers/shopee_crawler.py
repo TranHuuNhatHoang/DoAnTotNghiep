@@ -41,8 +41,8 @@ AVAILABILITY_DISCONTINUED = "discontinued"
 AVAILABILITY_FETCH_ERROR = "fetch_error"
 AVAILABILITY_BLOCKED = "blocked_or_captcha"
 
-BASE_DIR = Path(__file__).resolve().parent
-DEBUG_DIR = BASE_DIR / "storage" / "bot_debug"
+PROJECT_ROOT = Path(__file__).resolve().parent.parent
+DEBUG_DIR = PROJECT_ROOT / "storage" / "bot_debug"
 
 
 def env_bool(name, default=False):
@@ -80,6 +80,7 @@ HEADLESS_MODE = env_bool("SHOPEE_HEADLESS", False)
 BATCH_LIMIT = env_int("SHOPEE_BATCH_LIMIT", 8, minimum=1, maximum=30)
 CAPTCHA_COOLDOWN_MINUTES = env_int("SHOPEE_CAPTCHA_COOLDOWN_MINUTES", 180, minimum=15)
 STOP_ON_CAPTCHA = env_bool("SHOPEE_STOP_ON_CAPTCHA", True)
+ALLOW_MANUAL_CLEAR = env_bool("SHOPEE_ALLOW_MANUAL_CLEAR", False)
 PAGE_LOAD_TIMEOUT = env_int("SHOPEE_PAGE_LOAD_TIMEOUT", 35, minimum=10, maximum=180)
 MIN_DELAY_SECONDS = env_float("SHOPEE_MIN_DELAY_SECONDS", 6.0, minimum=1.0)
 MAX_DELAY_SECONDS = env_float("SHOPEE_MAX_DELAY_SECONDS", 12.0, minimum=MIN_DELAY_SECONDS)
@@ -358,6 +359,9 @@ def save_debug_artifacts(driver, link_id, reason):
 
 
 def wait_for_manual_clear(driver, reason):
+    if not ALLOW_MANUAL_CLEAR:
+        return False
+
     if not sys.stdin.isatty():
         return False
 

@@ -2,6 +2,7 @@ import os
 from pathlib import Path
 
 
+PROJECT_ROOT = Path(__file__).resolve().parent.parent
 _ENV_LOADED = False
 
 
@@ -10,7 +11,7 @@ def load_env():
     if _ENV_LOADED:
         return
 
-    env_path = Path(__file__).resolve().parent / ".env"
+    env_path = PROJECT_ROOT / ".env"
     if env_path.is_file():
         for raw_line in env_path.read_text(encoding="utf-8").splitlines():
             line = raw_line.strip()
@@ -48,4 +49,4 @@ def get_profile_path(default_name="master_profile"):
     configured_path = os.getenv("CHROME_PROFILE_PATH", "").strip()
     if configured_path:
         return str(Path(configured_path).expanduser().resolve())
-    return str(Path(__file__).resolve().parent / default_name)
+    return str(PROJECT_ROOT / default_name)

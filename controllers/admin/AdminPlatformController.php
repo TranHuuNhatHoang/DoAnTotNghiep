@@ -167,8 +167,10 @@ class AdminPlatformController {
             $platform_name = trim($_POST['platform_name']);
             $url = trim($_POST['product_url']);
             
-            if (!empty($url) && in_array($platform_name, ['Tiki', 'Shopee', 'Lazada'])) {
-                $this->productModel->addPlatformLink($product_id, $platform_name, $url);
+            if ($product_id <= 0 || empty($url) || !in_array($platform_name, ['Tiki', 'Shopee', 'Lazada'])) {
+                $_SESSION['admin_error'] = 'Link hoặc sàn không hợp lệ.';
+            } elseif (!$this->productModel->addPlatformLink($product_id, $platform_name, $url)) {
+                $_SESSION['admin_error'] = 'Không thể lưu link. Link này có thể đã tồn tại ở sản phẩm khác hoặc dữ liệu link không hợp lệ.';
             }
             header("Location: index.php?role=admin&controller=adminPlatform&action=index&product_id=" . $product_id);
             exit();
@@ -183,7 +185,11 @@ class AdminPlatformController {
             $url = trim($_POST['product_url']);
             $is_active = isset($_POST['is_active']) ? 1 : 0; // Checkbox
             
-            $this->productModel->updatePlatformLink($link_id, $url, $is_active);
+            if ($link_id <= 0 || empty($url)) {
+                $_SESSION['admin_error'] = 'Link không hợp lệ.';
+            } elseif (!$this->productModel->updatePlatformLink($link_id, $url, $is_active)) {
+                $_SESSION['admin_error'] = 'Không thể cập nhật link. Link này có thể đã tồn tại ở sản phẩm khác hoặc dữ liệu link không hợp lệ.';
+            }
             header("Location: index.php?role=admin&controller=adminPlatform&action=index&product_id=" . $product_id);
             exit();
         }
