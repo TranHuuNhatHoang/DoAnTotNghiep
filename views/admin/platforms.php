@@ -171,6 +171,8 @@ function platform_meta($name) {
             </div>
         </div>
 
+        <div class="alert d-none" data-platform-message></div>
+
         <?php if (empty($links)): ?>
             <section class="admin-card empty-link-state">
                 <i class="fas fa-link-slash fa-3x text-muted mb-3"></i>
@@ -187,7 +189,7 @@ function platform_meta($name) {
                     $isActive = (int) ($link['is_active'] ?? 0) === 1;
                     $statusMeta = platform_availability_meta($link['availability_status'] ?? 'unknown', $isActive);
                 ?>
-                    <article class="admin-card platform-card <?php echo e_admin_platform($meta['class']); ?>">
+                    <article class="admin-card platform-card <?php echo e_admin_platform($meta['class']); ?>" data-platform-card data-link-id="<?php echo (int) $link['id']; ?>">
                         <div class="p-4">
                             <div class="platform-head">
                                 <div>
@@ -251,6 +253,10 @@ function platform_meta($name) {
                                 </button>
                                 <a href="index.php?role=admin&controller=adminPlatform&action=delete&id=<?php echo (int) $link['id']; ?>&product_id=<?php echo $product_id; ?>"
                                    class="btn btn-outline-danger icon-button"
+                                   data-delete-platform-link
+                                   data-link-id="<?php echo (int) $link['id']; ?>"
+                                   data-product-id="<?php echo $product_id; ?>"
+                                   data-confirm-message="Bạn muốn xóa link này?"
                                    onclick="return confirm('Bạn muốn xóa link này?');"
                                    title="Xóa link">
                                     <i class="fas fa-trash"></i>
@@ -266,12 +272,13 @@ function platform_meta($name) {
 
 <div class="modal fade" id="addLinkModal" tabindex="-1" aria-hidden="true">
     <div class="modal-dialog">
-        <form action="index.php?role=admin&controller=adminPlatform&action=add" method="POST" class="modal-content">
+        <form action="index.php?role=admin&controller=adminPlatform&action=add" method="POST" class="modal-content" data-platform-form>
             <div class="modal-header">
                 <h5 class="modal-title fw-bold">Thêm nguồn dữ liệu</h5>
                 <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Đóng"></button>
             </div>
             <div class="modal-body">
+                <div class="alert alert-danger d-none" data-modal-error></div>
                 <input type="hidden" name="product_id" value="<?php echo $product_id; ?>">
                 <div class="mb-3">
                     <label class="form-label fw-bold">Sàn thương mại</label>
@@ -296,12 +303,13 @@ function platform_meta($name) {
 
 <div class="modal fade" id="editLinkModal" tabindex="-1" aria-hidden="true">
     <div class="modal-dialog">
-        <form action="index.php?role=admin&controller=adminPlatform&action=update" method="POST" class="modal-content">
+        <form action="index.php?role=admin&controller=adminPlatform&action=update" method="POST" class="modal-content" data-platform-form>
             <div class="modal-header">
                 <h5 class="modal-title fw-bold">Cập nhật nguồn dữ liệu</h5>
                 <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Đóng"></button>
             </div>
             <div class="modal-body">
+                <div class="alert alert-danger d-none" data-modal-error></div>
                 <input type="hidden" name="product_id" value="<?php echo $product_id; ?>">
                 <input type="hidden" name="link_id" id="edit_link_id">
                 <div class="mb-3">
@@ -321,12 +329,127 @@ function platform_meta($name) {
 </div>
 
 <script>
+    const platformMessage = document.querySelector('[data-platform-message]');
+
+    function showPlatformMessage(message, type = 'success') {
+        if (!platformMessage) return;
+        platformMessage.textContent = message || '';
+        platformMessage.classList.remove('d-none', 'alert-success', 'alert-danger', 'alert-warning');
+        platformMessage.classList.add(type === 'success' ? 'alert-success' : 'alert-danger');
+    }
+
+    function showModalError(form, message) {
+        const errorBox = form.querySelector('[data-modal-error]');
+        if (!errorBox) return;
+        errorBox.textContent = message || 'Có lỗi xảy ra. Vui lòng thử lại.';
+        errorBox.classList.remove('d-none');
+    }
+
+    function clearModalError(form) {
+        const errorBox = form.querySelector('[data-modal-error]');
+        if (!errorBox) return;
+        errorBox.textContent = '';
+        errorBox.classList.add('d-none');
+    }
+
+    async function readPlatformJson(response) {
+        try {
+            return await response.json();
+        } catch (error) {
+            return { success: false, message: 'Máy chủ trả về dữ liệu không hợp lệ.' };
+        }
+    }
+
     document.querySelectorAll('[data-edit-link]').forEach((button) => {
         button.addEventListener('click', () => {
             document.getElementById('edit_link_id').value = button.dataset.id || '';
             document.getElementById('edit_url').value = button.dataset.url || '';
             document.getElementById('edit_is_active').checked = button.dataset.active === '1';
+            const editForm = document.querySelector('#editLinkModal [data-platform-form]');
+            if (editForm) clearModalError(editForm);
         });
+    });
+
+    document.querySelectorAll('[data-platform-form]').forEach((form) => {
+        form.addEventListener('submit', async (event) => {
+            event.preventDefault();
+            clearModalError(form);
+
+            const submitButton = form.querySelector('button[type="submit"]');
+            if (submitButton) submitButton.disabled = true;
+
+            try {
+                const response = await fetch(form.action, {
+                    method: 'POST',
+                    body: new FormData(form),
+                    headers: {
+                        'X-Requested-With': 'XMLHttpRequest',
+                        'Accept': 'application/json'
+                    }
+                });
+                const data = await readPlatformJson(response);
+
+                if (!response.ok || !data.success) {
+                    showModalError(form, data.message || 'Không thể lưu link sàn.');
+                    return;
+                }
+
+                showPlatformMessage(data.message || 'Đã lưu link sàn.', 'success');
+                window.setTimeout(() => window.location.reload(), 500);
+            } catch (error) {
+                showModalError(form, 'Không thể kết nối máy chủ. Vui lòng thử lại.');
+            } finally {
+                if (submitButton) submitButton.disabled = false;
+            }
+        });
+    });
+
+    document.querySelectorAll('[data-delete-platform-link]').forEach((link) => {
+        link.addEventListener('click', async (event) => {
+            event.preventDefault();
+            event.stopImmediatePropagation();
+
+            const confirmMessage = link.dataset.confirmMessage || 'Bạn muốn xóa link này?';
+            if (!window.confirm(confirmMessage)) return;
+
+            link.style.pointerEvents = 'none';
+            link.style.opacity = '.6';
+
+            try {
+                const formData = new FormData();
+                formData.append('link_id', link.dataset.linkId || '');
+                formData.append('product_id', link.dataset.productId || '');
+
+                const response = await fetch(link.href, {
+                    method: 'POST',
+                    body: formData,
+                    headers: {
+                        'X-Requested-With': 'XMLHttpRequest',
+                        'Accept': 'application/json'
+                    }
+                });
+                const data = await readPlatformJson(response);
+
+                if (!response.ok || !data.success) {
+                    showPlatformMessage(data.message || 'Không thể xóa link sàn.', 'danger');
+                    link.style.pointerEvents = '';
+                    link.style.opacity = '';
+                    return;
+                }
+
+                const card = link.closest('[data-platform-card]');
+                if (card) card.remove();
+                showPlatformMessage(data.message || 'Đã xóa link sàn.', 'success');
+
+                if (!document.querySelector('[data-platform-card]')) {
+                    window.setTimeout(() => window.location.reload(), 500);
+                }
+            } catch (error) {
+                showPlatformMessage('Không thể kết nối máy chủ. Vui lòng thử lại.', 'danger');
+                link.style.pointerEvents = '';
+                link.style.opacity = '';
+            }
+        }, true);
     });
 </script>
 <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>

@@ -13,6 +13,72 @@ $selectedPlatform = $_GET['platform_filter'] ?? '';
 $sortBy = $_GET['sort_by'] ?? 'newest';
 $minPrice = $_GET['min_price'] ?? '';
 $maxPrice = $_GET['max_price'] ?? '';
+
+function render_search_summary($keywordValue, $products) {
+    $keywordValue = trim((string) $keywordValue);
+    ob_start();
+    ?>
+    <div class="eyebrow">Kết quả tìm kiếm</div>
+    <h1 class="result-title">
+        <?php echo $keywordValue !== '' ? '"' . e_search($keywordValue) . '"' : 'Tất cả sản phẩm'; ?>
+    </h1>
+    <div class="text-muted fw-bold mt-1"><?php echo count($products); ?> sản phẩm phù hợp</div>
+    <?php
+    return trim(ob_get_clean());
+}
+
+function render_search_results($products) {
+    ob_start();
+    ?>
+    <?php if(empty($products)): ?>
+        <div class="empty-state">
+            <i class="fas fa-magnifying-glass-minus"></i>
+            <h2 class="h4 fw-bold">Không tìm thấy sản phẩm phù hợp</h2>
+            <p class="text-muted mb-0">Hãy thử từ khóa ngắn hơn hoặc bỏ bớt điều kiện lọc.</p>
+        </div>
+    <?php else: ?>
+        <div class="product-grid">
+            <?php foreach($products as $p): ?>
+                <article class="product-card">
+                    <a href="index.php?role=user&controller=product&action=detail&id=<?php echo (int) $p['id']; ?>" class="product-link">
+                        <div class="product-media">
+                            <?php if(!empty($p['thumbnail_url'])): ?>
+                                <img src="<?php echo e_search($p['thumbnail_url']); ?>" alt="<?php echo e_search($p['name']); ?>">
+                            <?php else: ?>
+                                <i class="fas fa-box-open"></i>
+                            <?php endif; ?>
+                        </div>
+                        <div class="product-meta"><?php echo e_search($p['category_name'] ?? 'Sản phẩm'); ?></div>
+                        <h2 class="product-name"><?php echo e_search($p['name']); ?></h2>
+                    </a>
+
+                    <div class="product-bottom">
+                        <div class="price-label">Giá tốt nhất</div>
+                        <div class="product-price"><?php echo price_search($p['min_price'] ?? 0); ?></div>
+
+                        <div class="platform-row">
+                            <span class="platform-pill <?php echo !empty($p['tiki_price']) ? '' : 'is-muted'; ?>">
+                                <img src="https://upload.wikimedia.org/wikipedia/commons/4/43/Logo_Tiki_2023.png" alt="Tiki">
+                            </span>
+                            <span class="platform-pill <?php echo !empty($p['shopee_price']) ? '' : 'is-muted'; ?>">
+                                <img src="https://upload.wikimedia.org/wikipedia/commons/f/fe/Shopee.svg" alt="Shopee">
+                            </span>
+                            <span class="platform-pill <?php echo !empty($p['lazada_price']) ? '' : 'is-muted'; ?>">
+                                <img src="https://upload.wikimedia.org/wikipedia/commons/thumb/0/0e/Lazada_logo.svg/2560px-Lazada_logo.svg.png" alt="Lazada">
+                            </span>
+                        </div>
+                    </div>
+                </article>
+            <?php endforeach; ?>
+        </div>
+    <?php endif; ?>
+    <?php
+    return trim(ob_get_clean());
+}
+
+if (!empty($searchPartialOnly)) {
+    return;
+}
 ?>
 <!DOCTYPE html>
 <html lang="vi">
@@ -345,6 +411,8 @@ $maxPrice = $_GET['max_price'] ?? '';
         }
 
         .empty-state i { font-size: 4rem; color: #cbd5e1; margin-bottom: 16px; }
+        [data-search-results].is-loading { opacity: .55; pointer-events: none; }
+        [data-search-filter-form].is-loading .apply-btn { opacity: .75; }
 
         @media (max-width: 1100px) {
             .header-inner { grid-template-columns: 1fr; padding: 14px 0; }
@@ -383,19 +451,15 @@ $maxPrice = $_GET['max_price'] ?? '';
 
 <section class="result-hero">
     <div class="container result-hero-inner">
-        <div>
-            <div class="eyebrow">Kết quả tìm kiếm</div>
-            <h1 class="result-title">
-                <?php echo $keywordValue !== '' ? '"' . e_search($keywordValue) . '"' : 'Tất cả sản phẩm'; ?>
-            </h1>
-            <div class="text-muted fw-bold mt-1"><?php echo count($products); ?> sản phẩm phù hợp</div>
+        <div data-search-summary>
+            <?php echo render_search_summary($keywordValue, $products); ?>
         </div>
         <a href="index.php?role=user&controller=product&action=search" class="clear-btn px-3" style="width:auto;">Xem tất cả</a>
     </div>
 </section>
 
 <main class="container">
-    <form action="index.php" method="GET" id="filterForm" class="layout">
+    <form action="index.php" method="GET" id="filterForm" class="layout" data-search-filter-form data-action-url="index.php">
         <input type="hidden" name="role" value="user">
         <input type="hidden" name="controller" value="product">
         <input type="hidden" name="action" value="search">
@@ -409,12 +473,12 @@ $maxPrice = $_GET['max_price'] ?? '';
             <div class="filter-block mt-0 pt-0 border-0">
                 <div class="filter-label">Danh mục</div>
                 <label class="filter-option">
-                    <input type="radio" name="category_id" value="" <?php echo $selectedCategory === 0 ? 'checked' : ''; ?> onchange="this.form.submit();">
+                    <input type="radio" name="category_id" value="" <?php echo $selectedCategory === 0 ? 'checked' : ''; ?> onchange="if (!window.SmartPriceAjaxFilters) this.form.submit();">
                     Tất cả danh mục
                 </label>
                 <?php if(isset($categories)): foreach($categories as $cat): ?>
                     <label class="filter-option">
-                        <input type="radio" name="category_id" value="<?php echo (int) $cat['id']; ?>" <?php echo $selectedCategory === (int) $cat['id'] ? 'checked' : ''; ?> onchange="this.form.submit();">
+                        <input type="radio" name="category_id" value="<?php echo (int) $cat['id']; ?>" <?php echo $selectedCategory === (int) $cat['id'] ? 'checked' : ''; ?> onchange="if (!window.SmartPriceAjaxFilters) this.form.submit();">
                         <?php echo e_search($cat['name']); ?>
                     </label>
                 <?php endforeach; endif; ?>
@@ -424,7 +488,7 @@ $maxPrice = $_GET['max_price'] ?? '';
                 <div class="filter-label">Sàn thương mại</div>
                 <?php foreach(['' => 'Tất cả sàn', 'Tiki' => 'Tiki', 'Shopee' => 'Shopee', 'Lazada' => 'Lazada'] as $value => $label): ?>
                     <label class="filter-option">
-                        <input type="radio" name="platform_filter" value="<?php echo e_search($value); ?>" <?php echo $selectedPlatform === $value ? 'checked' : ''; ?> onchange="this.form.submit();">
+                        <input type="radio" name="platform_filter" value="<?php echo e_search($value); ?>" <?php echo $selectedPlatform === $value ? 'checked' : ''; ?> onchange="if (!window.SmartPriceAjaxFilters) this.form.submit();">
                         <?php echo e_search($label); ?>
                     </label>
                 <?php endforeach; ?>
@@ -440,7 +504,7 @@ $maxPrice = $_GET['max_price'] ?? '';
             </div>
 
             <div class="filter-block">
-                <a href="index.php?role=user&controller=product&action=search&keyword=<?php echo urlencode($keywordValue); ?>" class="clear-btn">
+                <a href="index.php?role=user&controller=product&action=search&keyword=<?php echo urlencode($keywordValue); ?>" class="clear-btn" data-clear-filters>
                     <i class="fas fa-rotate-left me-2"></i>Xóa bộ lọc
                 </a>
             </div>
@@ -449,59 +513,146 @@ $maxPrice = $_GET['max_price'] ?? '';
         <section>
             <div class="toolbar">
                 <div class="fw-bold text-muted">Sắp xếp sản phẩm</div>
-                <select name="sort_by" onchange="this.form.submit();">
+                <select name="sort_by" onchange="if (!window.SmartPriceAjaxFilters) this.form.submit();">
                     <option value="newest" <?php echo $sortBy === 'newest' ? 'selected' : ''; ?>>Mới nhất</option>
                     <option value="price_asc" <?php echo $sortBy === 'price_asc' ? 'selected' : ''; ?>>Giá thấp đến cao</option>
                     <option value="price_desc" <?php echo $sortBy === 'price_desc' ? 'selected' : ''; ?>>Giá cao đến thấp</option>
                 </select>
             </div>
 
-            <?php if(empty($products)): ?>
-                <div class="empty-state">
-                    <i class="fas fa-magnifying-glass-minus"></i>
-                    <h2 class="h4 fw-bold">Không tìm thấy sản phẩm phù hợp</h2>
-                    <p class="text-muted mb-0">Hãy thử từ khóa ngắn hơn hoặc bỏ bớt điều kiện lọc.</p>
-                </div>
-            <?php else: ?>
-                <div class="product-grid">
-                    <?php foreach($products as $p): ?>
-                        <article class="product-card">
-                            <a href="index.php?role=user&controller=product&action=detail&id=<?php echo (int) $p['id']; ?>" class="product-link">
-                                <div class="product-media">
-                                    <?php if(!empty($p['thumbnail_url'])): ?>
-                                        <img src="<?php echo e_search($p['thumbnail_url']); ?>" alt="<?php echo e_search($p['name']); ?>">
-                                    <?php else: ?>
-                                        <i class="fas fa-box-open"></i>
-                                    <?php endif; ?>
-                                </div>
-                                <div class="product-meta"><?php echo e_search($p['category_name'] ?? 'Sản phẩm'); ?></div>
-                                <h2 class="product-name"><?php echo e_search($p['name']); ?></h2>
-                            </a>
-
-                            <div class="product-bottom">
-                                <div class="price-label">Giá tốt nhất</div>
-                                <div class="product-price"><?php echo price_search($p['min_price'] ?? 0); ?></div>
-
-                                <div class="platform-row">
-                                    <span class="platform-pill <?php echo !empty($p['tiki_price']) ? '' : 'is-muted'; ?>">
-                                        <img src="https://upload.wikimedia.org/wikipedia/commons/4/43/Logo_Tiki_2023.png" alt="Tiki">
-                                    </span>
-                                    <span class="platform-pill <?php echo !empty($p['shopee_price']) ? '' : 'is-muted'; ?>">
-                                        <img src="https://upload.wikimedia.org/wikipedia/commons/f/fe/Shopee.svg" alt="Shopee">
-                                    </span>
-                                    <span class="platform-pill <?php echo !empty($p['lazada_price']) ? '' : 'is-muted'; ?>">
-                                        <img src="https://upload.wikimedia.org/wikipedia/commons/thumb/0/0e/Lazada_logo.svg/2560px-Lazada_logo.svg.png" alt="Lazada">
-                                    </span>
-                                </div>
-                            </div>
-                        </article>
-                    <?php endforeach; ?>
-                </div>
-            <?php endif; ?>
+            <div data-search-results>
+                <?php echo render_search_results($products); ?>
+            </div>
         </section>
     </form>
 </main>
 
+<script>
+window.SmartPriceAjaxFilters = true;
+
+const searchFilterForm = document.querySelector('[data-search-filter-form]');
+const searchSummary = document.querySelector('[data-search-summary]');
+const searchResults = document.querySelector('[data-search-results]');
+const clearFiltersLink = document.querySelector('[data-clear-filters]');
+
+function buildSearchUrlFromForm(form) {
+    const actionUrl = form.dataset.actionUrl || form.getAttribute('action') || 'index.php';
+    const url = new URL(actionUrl, window.location.href);
+    const params = new URLSearchParams();
+    const keepEmptyKeys = new Set(['role', 'controller', 'action', 'keyword']);
+
+    for (const [key, value] of new FormData(form).entries()) {
+        const stringValue = String(value);
+        if (stringValue !== '' || keepEmptyKeys.has(key)) {
+            params.set(key, stringValue);
+        }
+    }
+
+    url.search = params.toString();
+    return url;
+}
+
+function setRadioValue(form, name, value) {
+    const normalizedValue = value || '';
+    form.querySelectorAll(`input[type="radio"][name="${name}"]`).forEach((input) => {
+        input.checked = input.value === normalizedValue;
+    });
+}
+
+function syncSearchFormFromUrl(url) {
+    if (!searchFilterForm) return;
+
+    const params = new URL(url, window.location.href).searchParams;
+    const keyword = params.get('keyword') || '';
+
+    const keywordInput = searchFilterForm.querySelector('input[name="keyword"]');
+    if (keywordInput) keywordInput.value = keyword;
+
+    const headerKeywordInput = document.querySelector('.search-form input[name="keyword"]');
+    if (headerKeywordInput) headerKeywordInput.value = keyword;
+
+    setRadioValue(searchFilterForm, 'category_id', params.get('category_id') || '');
+    setRadioValue(searchFilterForm, 'platform_filter', params.get('platform_filter') || '');
+
+    const minInput = searchFilterForm.querySelector('input[name="min_price"]');
+    const maxInput = searchFilterForm.querySelector('input[name="max_price"]');
+    const sortInput = searchFilterForm.querySelector('select[name="sort_by"]');
+
+    if (minInput) minInput.value = params.get('min_price') || '';
+    if (maxInput) maxInput.value = params.get('max_price') || '';
+    if (sortInput) sortInput.value = params.get('sort_by') || 'newest';
+}
+
+async function readSearchJson(response) {
+    try {
+        return await response.json();
+    } catch (error) {
+        return { success: false, message: 'Máy chủ trả về dữ liệu không hợp lệ.' };
+    }
+}
+
+async function loadSearchResults(url, pushUrl = true) {
+    if (!searchSummary || !searchResults) {
+        window.location.href = url;
+        return;
+    }
+
+    searchResults.classList.add('is-loading');
+    if (searchFilterForm) searchFilterForm.classList.add('is-loading');
+
+    try {
+        const response = await fetch(url, {
+            method: 'GET',
+            headers: {
+                'X-Requested-With': 'XMLHttpRequest',
+                'Accept': 'application/json'
+            }
+        });
+        const data = await readSearchJson(response);
+
+        if (!response.ok || !data.success) {
+            window.location.href = url;
+            return;
+        }
+
+        searchSummary.innerHTML = data.summary_html || '';
+        searchResults.innerHTML = data.results_html || '';
+        syncSearchFormFromUrl(url);
+
+        if (pushUrl) {
+            window.history.pushState({ ajaxSearch: true }, '', url);
+        }
+    } catch (error) {
+        window.location.href = url;
+    } finally {
+        searchResults.classList.remove('is-loading');
+        if (searchFilterForm) searchFilterForm.classList.remove('is-loading');
+    }
+}
+
+if (searchFilterForm) {
+    searchFilterForm.addEventListener('submit', (event) => {
+        event.preventDefault();
+        loadSearchResults(buildSearchUrlFromForm(searchFilterForm).toString(), true);
+    });
+
+    searchFilterForm.addEventListener('change', (event) => {
+        if (!event.target.matches('input[type="radio"], select[name="sort_by"]')) return;
+        loadSearchResults(buildSearchUrlFromForm(searchFilterForm).toString(), true);
+    });
+}
+
+if (clearFiltersLink) {
+    clearFiltersLink.addEventListener('click', (event) => {
+        event.preventDefault();
+        loadSearchResults(clearFiltersLink.href, true);
+    });
+}
+
+window.addEventListener('popstate', () => {
+    loadSearchResults(window.location.href, false);
+});
+</script>
 <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
 </body>
 </html>

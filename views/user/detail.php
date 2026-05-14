@@ -234,7 +234,8 @@ $productSpecs = $productSpecs ?? [];
                 <p class="text-muted fw-semibold small">Nhận email khi sản phẩm giảm xuống mức giá bạn đặt.</p>
 
                 <?php if(isset($_SESSION['user_id'])): ?>
-                    <form action="index.php?role=user&controller=product&action=setAlert" method="POST">
+                    <div class="alert py-2 small fw-bold d-none" data-alert-message></div>
+                    <form action="index.php?role=user&controller=product&action=setAlert" method="POST" data-alert-form>
                         <input type="hidden" name="product_id" value="<?php echo (int) $product['id']; ?>">
                         <label class="form-label fw-bold">Giá mong muốn</label>
                         <div class="input-group mb-3">
@@ -382,6 +383,107 @@ if (priceInput) {
         calculateSaving();
     });
     calculateSaving();
+}
+
+const alertForm = document.querySelector('[data-alert-form]');
+const alertMessage = document.querySelector('[data-alert-message]');
+
+function showAlertFeedback(message, type = 'success') {
+    if (!alertMessage) return;
+    alertMessage.textContent = message || '';
+    alertMessage.classList.remove('d-none', 'alert-success', 'alert-danger', 'alert-warning');
+    alertMessage.classList.add(type === 'success' ? 'alert-success' : 'alert-danger');
+}
+
+async function readJsonResponse(response) {
+    try {
+        return await response.json();
+    } catch (error) {
+        return { success: false, message: 'Máy chủ trả về dữ liệu không hợp lệ.' };
+    }
+}
+
+if (alertForm) {
+    alertForm.addEventListener('submit', async (event) => {
+        event.preventDefault();
+
+        const submitButton = alertForm.querySelector('button[type="submit"]');
+        if (submitButton) submitButton.disabled = true;
+
+        try {
+            const response = await fetch(alertForm.action, {
+                method: 'POST',
+                body: new FormData(alertForm),
+                headers: {
+                    'X-Requested-With': 'XMLHttpRequest',
+                    'Accept': 'application/json'
+                }
+            });
+            const data = await readJsonResponse(response);
+
+            if (!response.ok || !data.success) {
+                showAlertFeedback(data.message || 'Không thể lưu mức giá theo dõi.', 'danger');
+                return;
+            }
+
+            showAlertFeedback(data.message || 'Đã lưu mức giá theo dõi.', 'success');
+            if (submitButton) submitButton.textContent = 'Cập nhật mức giá';
+
+            if (!alertForm.querySelector('.secondary-link')) {
+                const productId = data.product_id || alertForm.querySelector('[name="product_id"]')?.value || '';
+                const removeLink = document.createElement('a');
+                removeLink.className = 'secondary-link mt-2';
+                removeLink.href = `index.php?role=user&controller=product&action=removeAlert&id=${encodeURIComponent(productId)}`;
+                removeLink.textContent = 'Hủy theo dõi';
+                alertForm.appendChild(removeLink);
+            }
+        } catch (error) {
+            showAlertFeedback('Không thể kết nối máy chủ. Vui lòng thử lại.', 'danger');
+        } finally {
+            if (submitButton) submitButton.disabled = false;
+        }
+    });
+
+    alertForm.addEventListener('click', async (event) => {
+        const removeLink = event.target.closest('.secondary-link');
+        if (!removeLink || !alertForm.contains(removeLink)) return;
+
+        event.preventDefault();
+        removeLink.classList.add('disabled');
+        removeLink.style.pointerEvents = 'none';
+
+        try {
+            const productId = alertForm.querySelector('[name="product_id"]')?.value || '';
+            const formData = new FormData();
+            formData.append('product_id', productId);
+
+            const response = await fetch(removeLink.href, {
+                method: 'POST',
+                body: formData,
+                headers: {
+                    'X-Requested-With': 'XMLHttpRequest',
+                    'Accept': 'application/json'
+                }
+            });
+            const data = await readJsonResponse(response);
+
+            if (!response.ok || !data.success) {
+                showAlertFeedback(data.message || 'Không thể hủy theo dõi sản phẩm.', 'danger');
+                removeLink.classList.remove('disabled');
+                removeLink.style.pointerEvents = '';
+                return;
+            }
+
+            removeLink.remove();
+            const submitButton = alertForm.querySelector('button[type="submit"]');
+            if (submitButton) submitButton.textContent = 'Bật theo dõi giá';
+            showAlertFeedback(data.message || 'Đã hủy theo dõi sản phẩm.', 'success');
+        } catch (error) {
+            showAlertFeedback('Không thể kết nối máy chủ. Vui lòng thử lại.', 'danger');
+            removeLink.classList.remove('disabled');
+            removeLink.style.pointerEvents = '';
+        }
+    });
 }
 </script>
 <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>

@@ -521,6 +521,8 @@ foreach ($alerts as $alertItem) {
                 <div class="notice"><i class="fas fa-check-circle me-2"></i>Đã hủy theo dõi sản phẩm.</div>
             <?php endif; ?>
 
+            <div class="notice d-none" data-alerts-message></div>
+
             <div class="toolbar">
                 <div>
                     <h2>Danh sách của bạn</h2>
@@ -543,7 +545,7 @@ foreach ($alerts as $alertItem) {
                     <a class="btn-main px-4" href="index.php"><i class="fas fa-bolt"></i> Khám phá deal</a>
                 </section>
             <?php else: ?>
-                <div class="alert-grid">
+                <div class="alert-grid" data-alert-grid>
                     <?php foreach ($alerts as $item):
                         $productId = (int) ($item['product_id'] ?? 0);
                         $productName = $item['product_name'] ?? 'Sản phẩm';
@@ -552,7 +554,7 @@ foreach ($alerts as $alertItem) {
                         $isReached = ($minPrice > 0 && $targetPrice > 0 && $minPrice <= $targetPrice);
                         $createdAt = !empty($item['alert_created_at']) ? date('d/m/Y', strtotime($item['alert_created_at'])) : 'Chưa rõ ngày';
                     ?>
-                        <article class="watch-card">
+                        <article class="watch-card" data-alert-card data-product-id="<?php echo $productId; ?>">
                             <div class="watch-media">
                                 <span class="status-badge <?php echo $isReached ? 'ready' : 'waiting'; ?>">
                                     <i class="fas <?php echo $isReached ? 'fa-circle-check' : 'fa-clock'; ?> me-1"></i>
@@ -589,6 +591,9 @@ foreach ($alerts as $alertItem) {
                                         <i class="fas fa-chart-line"></i> Xem giá
                                     </a>
                                     <a class="btn-icon" href="index.php?role=user&controller=product&action=removeAlert&id=<?php echo $productId; ?>&redirect=my_alerts"
+                                       data-remove-alert
+                                       data-product-id="<?php echo $productId; ?>"
+                                       data-confirm-message="Bạn muốn hủy theo dõi sản phẩm này?"
                                        onclick="return confirm('Bạn muốn hủy theo dõi sản phẩm này?');"
                                        aria-label="Hủy theo dõi">
                                         <i class="fas fa-trash"></i>
@@ -609,6 +614,75 @@ foreach ($alerts as $alertItem) {
         </div>
     </footer>
 
+    <script>
+        const alertsGrid = document.querySelector('[data-alert-grid]');
+        const alertsMessage = document.querySelector('[data-alerts-message]');
+
+        function showAlertsMessage(message, type = 'success') {
+            if (!alertsMessage) return;
+            alertsMessage.textContent = message || '';
+            alertsMessage.classList.remove('d-none');
+            alertsMessage.style.borderColor = type === 'success' ? '#bbf7d0' : '#fecdd3';
+            alertsMessage.style.background = type === 'success' ? '#f0fdf4' : '#fff1f2';
+            alertsMessage.style.color = type === 'success' ? '#166534' : '#9f1239';
+        }
+
+        async function readAlertsJson(response) {
+            try {
+                return await response.json();
+            } catch (error) {
+                return { success: false, message: 'Máy chủ trả về dữ liệu không hợp lệ.' };
+            }
+        }
+
+        document.querySelectorAll('[data-remove-alert]').forEach((link) => {
+            link.addEventListener('click', async (event) => {
+                event.preventDefault();
+                event.stopImmediatePropagation();
+
+                const confirmMessage = link.dataset.confirmMessage || 'Bạn muốn hủy theo dõi sản phẩm này?';
+                if (!window.confirm(confirmMessage)) return;
+
+                link.style.pointerEvents = 'none';
+                link.style.opacity = '.6';
+
+                try {
+                    const formData = new FormData();
+                    formData.append('product_id', link.dataset.productId || '');
+                    formData.append('redirect', 'my_alerts');
+
+                    const response = await fetch(link.href, {
+                        method: 'POST',
+                        body: formData,
+                        headers: {
+                            'X-Requested-With': 'XMLHttpRequest',
+                            'Accept': 'application/json'
+                        }
+                    });
+                    const data = await readAlertsJson(response);
+
+                    if (!response.ok || !data.success) {
+                        showAlertsMessage(data.message || 'Không thể hủy theo dõi sản phẩm.', 'danger');
+                        link.style.pointerEvents = '';
+                        link.style.opacity = '';
+                        return;
+                    }
+
+                    const card = link.closest('[data-alert-card]');
+                    if (card) card.remove();
+                    showAlertsMessage(data.message || 'Đã hủy theo dõi sản phẩm.', 'success');
+
+                    if (alertsGrid && !alertsGrid.querySelector('[data-alert-card]')) {
+                        window.setTimeout(() => window.location.reload(), 500);
+                    }
+                } catch (error) {
+                    showAlertsMessage('Không thể kết nối máy chủ. Vui lòng thử lại.', 'danger');
+                    link.style.pointerEvents = '';
+                    link.style.opacity = '';
+                }
+            }, true);
+        });
+    </script>
     <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
 </body>
 </html>

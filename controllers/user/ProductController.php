@@ -11,6 +11,25 @@ class ProductController {
         if (session_status() === PHP_SESSION_NONE) { session_start(); }
     }
 
+    private function isAjaxRequest() {
+        $requestedWith = $_SERVER['HTTP_X_REQUESTED_WITH'] ?? '';
+        $accept = $_SERVER['HTTP_ACCEPT'] ?? '';
+
+        return strtolower($requestedWith) === 'xmlhttprequest'
+            || stripos($accept, 'application/json') !== false;
+    }
+
+    private function jsonResponse($data, $statusCode = 200) {
+        http_response_code($statusCode);
+        header('Content-Type: application/json; charset=utf-8');
+        echo json_encode($data, JSON_UNESCAPED_UNICODE);
+        exit();
+    }
+
+    private function formatCurrency($value) {
+        return number_format((int) $value, 0, ',', '.') . ' đ';
+    }
+
     public function index() {
         // Lấy danh mục cho Mega Menu
         require_once 'models/CategoryModel.php';
@@ -62,6 +81,18 @@ class ProductController {
         require_once 'models/CategoryModel.php';
         $categoryModel = new CategoryModel($this->db);
         $categories = $categoryModel->getAllCategories();
+
+        if ($this->isAjaxRequest()) {
+            $searchPartialOnly = true;
+            require_once 'views/user/search_results.php';
+
+            $this->jsonResponse([
+                'success' => true,
+                'summary_html' => render_search_summary($keyword, $products),
+                'results_html' => render_search_results($products),
+                'result_count' => count($products),
+            ]);
+        }
 
         require_once 'views/user/search_results.php'; // Bạn nên tạo thêm file này
     }
@@ -126,38 +157,100 @@ class ProductController {
 
     // XỬ LÝ LƯU MỨC GIÁ MONG MUỐN TỪ FORM
     public function setAlert() {
+        $isAjax = $this->isAjaxRequest();
         if (!isset($_SESSION['user_id'])) {
+            if ($isAjax) {
+                $this->jsonResponse([
+                    'success' => false,
+                    'message' => 'Bạn cần đăng nhập để thực hiện thao tác này.',
+                    'login_url' => 'index.php?role=user&controller=auth&action=login',
+                ], 401);
+            }
+
             header("Location: index.php?role=user&controller=auth&action=login");
             exit();
         }
 
         if ($_SERVER['REQUEST_METHOD'] == 'POST') {
-            $product_id = intval($_POST['product_id']);
+            $product_id = intval($_POST['product_id'] ?? 0);
             // Loại bỏ dấu phẩy/chấm nếu người dùng nhập kiểu 4.500.000
-            $target_price = intval(str_replace(['.', ','], '', trim($_POST['target_price']))); 
+            $target_price = intval(str_replace(['.', ','], '', trim($_POST['target_price'] ?? ''))); 
 
             if ($product_id > 0 && $target_price > 0) {
-                $this->productModel->setPriceAlert($_SESSION['user_id'], $product_id, $target_price);
+                $saved = $this->productModel->setPriceAlert($_SESSION['user_id'], $product_id, $target_price);
+                if ($isAjax) {
+                    if (!$saved) {
+                        $this->jsonResponse([
+                            'success' => false,
+                            'message' => 'Không thể lưu mức giá theo dõi. Vui lòng thử lại.',
+                        ], 500);
+                    }
+
+                    $this->jsonResponse([
+                        'success' => true,
+                        'message' => 'Đã lưu mức giá theo dõi.',
+                        'product_id' => $product_id,
+                        'target_price' => $target_price,
+                        'formatted_target_price' => $this->formatCurrency($target_price),
+                        'has_alert' => true,
+                    ]);
+                }
                 header("Location: index.php?role=user&controller=product&action=detail&id=$product_id&msg=alert_success");
                 exit();
             }
+            if ($isAjax) {
+                $this->jsonResponse([
+                    'success' => false,
+                    'message' => 'Vui lòng nhập mức giá hợp lệ.',
+                ], 422);
+            }
+        }
+        if ($isAjax) {
+            $this->jsonResponse([
+                'success' => false,
+                'message' => 'Yêu cầu không hợp lệ.',
+            ], 405);
         }
         header("Location: index.php");
         exit();
     }
     // XỬ LÝ HỦY THEO DÕI GIÁ
     public function removeAlert() {
+        $isAjax = $this->isAjaxRequest();
         if (!isset($_SESSION['user_id'])) {
+            if ($isAjax) {
+                $this->jsonResponse([
+                    'success' => false,
+                    'message' => 'Bạn cần đăng nhập để thực hiện thao tác này.',
+                    'login_url' => 'index.php?role=user&controller=auth&action=login',
+                ], 401);
+            }
+
             header("Location: index.php?role=user&controller=auth&action=login");
             exit();
         }
 
-        if (isset($_GET['id'])) {
-            $product_id = intval($_GET['id']);
+        if (isset($_GET['id']) || isset($_POST['id']) || isset($_POST['product_id'])) {
+            $product_id = intval($_POST['product_id'] ?? $_POST['id'] ?? $_GET['id'] ?? 0);
             if ($product_id > 0) {
                 // Xóa khỏi Database
-                $this->productModel->deletePriceAlert($_SESSION['user_id'], $product_id);
-                if (($_GET['redirect'] ?? '') === 'my_alerts') {
+                $deleted = $this->productModel->deletePriceAlert($_SESSION['user_id'], $product_id);
+                if ($isAjax) {
+                    if (!$deleted) {
+                        $this->jsonResponse([
+                            'success' => false,
+                            'message' => 'Không thể hủy theo dõi sản phẩm. Vui lòng thử lại.',
+                        ], 500);
+                    }
+
+                    $this->jsonResponse([
+                        'success' => true,
+                        'message' => 'Đã hủy theo dõi sản phẩm.',
+                        'product_id' => $product_id,
+                        'has_alert' => false,
+                    ]);
+                }
+                if (($_POST['redirect'] ?? $_GET['redirect'] ?? '') === 'my_alerts') {
                     header("Location: index.php?role=user&controller=product&action=myAlerts&msg=alert_removed");
                     exit();
                 }
@@ -165,6 +258,12 @@ class ProductController {
                 header("Location: index.php?role=user&controller=product&action=detail&id=$product_id&msg=alert_removed");
                 exit();
             }
+        }
+        if ($isAjax) {
+            $this->jsonResponse([
+                'success' => false,
+                'message' => 'Yêu cầu hủy theo dõi không hợp lệ.',
+            ], 422);
         }
         header("Location: index.php");
         exit();

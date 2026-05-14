@@ -7,6 +7,14 @@ class AdminPlatformController {
         if (session_status() === PHP_SESSION_NONE) { session_start(); }
 
         if (!isset($_SESSION['user_role']) || $_SESSION['user_role'] !== 'admin') {
+            if ($this->isAjaxRequest()) {
+                $this->jsonResponse([
+                    'success' => false,
+                    'message' => 'Phiên admin đã hết hạn hoặc bạn không có quyền thực hiện thao tác này.',
+                    'login_url' => 'index.php',
+                ], 401);
+            }
+
             header("Location: index.php");
             exit();
         }
@@ -19,6 +27,21 @@ class AdminPlatformController {
         }
         require_once 'models/ProductModel.php';
         $this->productModel = new ProductModel($this->db);
+    }
+
+    private function isAjaxRequest() {
+        $requestedWith = $_SERVER['HTTP_X_REQUESTED_WITH'] ?? '';
+        $accept = $_SERVER['HTTP_ACCEPT'] ?? '';
+
+        return strtolower($requestedWith) === 'xmlhttprequest'
+            || stripos($accept, 'application/json') !== false;
+    }
+
+    private function jsonResponse($data, $statusCode = 200) {
+        http_response_code($statusCode);
+        header('Content-Type: application/json; charset=utf-8');
+        echo json_encode($data, JSON_UNESCAPED_UNICODE);
+        exit();
     }
 
     // Hiển thị danh sách link của 1 sản phẩm
@@ -162,46 +185,121 @@ class AdminPlatformController {
 
     // Xử lý Thêm Link (Hàm addPlatformLink của bạn dùng cơ chế Upsert rất hay)
     public function add() {
+        $isAjax = $this->isAjaxRequest();
         if ($_SERVER['REQUEST_METHOD'] === 'POST') {
-            $product_id = intval($_POST['product_id']);
-            $platform_name = trim($_POST['platform_name']);
-            $url = trim($_POST['product_url']);
+            $product_id = intval($_POST['product_id'] ?? 0);
+            $platform_name = trim($_POST['platform_name'] ?? '');
+            $url = trim($_POST['product_url'] ?? '');
+            $error = '';
             
             if ($product_id <= 0 || empty($url) || !in_array($platform_name, ['Tiki', 'Shopee', 'Lazada'])) {
-                $_SESSION['admin_error'] = 'Link hoặc sàn không hợp lệ.';
+                $error = 'Link hoặc sàn không hợp lệ.';
             } elseif (!$this->productModel->addPlatformLink($product_id, $platform_name, $url)) {
-                $_SESSION['admin_error'] = 'Không thể lưu link. Link này có thể đã tồn tại ở sản phẩm khác hoặc dữ liệu link không hợp lệ.';
+                $error = 'Không thể lưu link. Link này có thể đã tồn tại ở sản phẩm khác hoặc dữ liệu link không hợp lệ.';
             }
+            if ($error !== '') {
+                if ($isAjax) {
+                    $this->jsonResponse([
+                        'success' => false,
+                        'message' => $error,
+                    ], 422);
+                }
+
+                $_SESSION['admin_error'] = $error;
+            } elseif ($isAjax) {
+                $this->jsonResponse([
+                    'success' => true,
+                    'message' => 'Đã gắn link sàn vào sản phẩm.',
+                    'product_id' => $product_id,
+                    'reload' => true,
+                ]);
+            }
+
             header("Location: index.php?role=admin&controller=adminPlatform&action=index&product_id=" . $product_id);
             exit();
+        }
+
+        if ($isAjax) {
+            $this->jsonResponse([
+                'success' => false,
+                'message' => 'Yêu cầu thêm link không hợp lệ.',
+            ], 405);
         }
     }
 
     // Xử lý Sửa Link
     public function update() {
+        $isAjax = $this->isAjaxRequest();
         if ($_SERVER['REQUEST_METHOD'] === 'POST') {
-            $product_id = intval($_POST['product_id']); // Để redirect về đúng trang
-            $link_id = intval($_POST['link_id']);
-            $url = trim($_POST['product_url']);
+            $product_id = intval($_POST['product_id'] ?? 0); // Để redirect về đúng trang
+            $link_id = intval($_POST['link_id'] ?? 0);
+            $url = trim($_POST['product_url'] ?? '');
             $is_active = isset($_POST['is_active']) ? 1 : 0; // Checkbox
+            $error = '';
             
             if ($link_id <= 0 || empty($url)) {
-                $_SESSION['admin_error'] = 'Link không hợp lệ.';
+                $error = 'Link không hợp lệ.';
             } elseif (!$this->productModel->updatePlatformLink($link_id, $url, $is_active)) {
-                $_SESSION['admin_error'] = 'Không thể cập nhật link. Link này có thể đã tồn tại ở sản phẩm khác hoặc dữ liệu link không hợp lệ.';
+                $error = 'Không thể cập nhật link. Link này có thể đã tồn tại ở sản phẩm khác hoặc dữ liệu link không hợp lệ.';
+            }
+            if ($error !== '') {
+                if ($isAjax) {
+                    $this->jsonResponse([
+                        'success' => false,
+                        'message' => $error,
+                    ], 422);
+                }
+
+                $_SESSION['admin_error'] = $error;
+            } elseif ($isAjax) {
+                $this->jsonResponse([
+                    'success' => true,
+                    'message' => 'Đã cập nhật link sàn.',
+                    'product_id' => $product_id,
+                    'link_id' => $link_id,
+                    'reload' => true,
+                ]);
             }
             header("Location: index.php?role=admin&controller=adminPlatform&action=index&product_id=" . $product_id);
             exit();
+        }
+
+        if ($isAjax) {
+            $this->jsonResponse([
+                'success' => false,
+                'message' => 'Yêu cầu cập nhật link không hợp lệ.',
+            ], 405);
         }
     }
 
     // Xử lý Xóa Link
     public function delete() {
-        $link_id = isset($_GET['id']) ? intval($_GET['id']) : 0;
-        $product_id = isset($_GET['product_id']) ? intval($_GET['product_id']) : 0;
+        $isAjax = $this->isAjaxRequest();
+        $link_id = intval($_POST['id'] ?? $_POST['link_id'] ?? $_GET['id'] ?? 0);
+        $product_id = intval($_POST['product_id'] ?? $_GET['product_id'] ?? 0);
 
         if ($link_id > 0) {
-            $this->productModel->deletePlatformLink($link_id);
+            $deleted = $this->productModel->deletePlatformLink($link_id);
+            if ($isAjax) {
+                if (!$deleted) {
+                    $this->jsonResponse([
+                        'success' => false,
+                        'message' => 'Không thể xóa link sàn. Vui lòng thử lại.',
+                    ], 500);
+                }
+
+                $this->jsonResponse([
+                    'success' => true,
+                    'message' => 'Đã xóa link sàn.',
+                    'product_id' => $product_id,
+                    'link_id' => $link_id,
+                ]);
+            }
+        } elseif ($isAjax) {
+            $this->jsonResponse([
+                'success' => false,
+                'message' => 'Link cần xóa không hợp lệ.',
+            ], 422);
         }
         header("Location: index.php?role=admin&controller=adminPlatform&action=index&product_id=" . $product_id);
         exit();
