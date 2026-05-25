@@ -30,6 +30,137 @@ function admin_availability_meta($status) {
 
     return $map[$status] ?? $map['unknown'];
 }
+
+function render_admin_platform_overview_stats($platformStats) {
+    $platformLogos = [
+        'Tiki' => 'https://upload.wikimedia.org/wikipedia/commons/4/43/Logo_Tiki_2023.png',
+        'Shopee' => 'https://upload.wikimedia.org/wikipedia/commons/f/fe/Shopee.svg',
+        'Lazada' => 'https://upload.wikimedia.org/wikipedia/commons/thumb/0/0e/Lazada_logo.svg/2560px-Lazada_logo.svg.png',
+    ];
+
+    ob_start();
+    ?>
+    <?php foreach (['Tiki', 'Shopee', 'Lazada'] as $platform): ?>
+        <?php $stat = $platformStats[$platform] ?? ['total_links' => 0, 'active_links' => 0, 'problem_links' => 0, 'last_scraped_at' => null]; ?>
+        <article class="admin-card stat-card">
+            <div class="stat-head">
+                <img class="stat-logo" src="<?php echo e_admin_platform_overview($platformLogos[$platform]); ?>" alt="<?php echo e_admin_platform_overview($platform); ?>">
+                <span class="badge text-bg-light border"><?php echo e_admin_platform_overview(admin_platform_overview_date($stat['last_scraped_at'] ?? null)); ?></span>
+            </div>
+            <div class="row g-3">
+                <div class="col-4">
+                    <div class="stat-number"><?php echo (int) ($stat['active_links'] ?? 0); ?></div>
+                    <div class="stat-label">Đang bật</div>
+                </div>
+                <div class="col-4">
+                    <div class="stat-number"><?php echo (int) ($stat['total_links'] ?? 0); ?></div>
+                    <div class="stat-label">Tổng link</div>
+                </div>
+                <div class="col-4">
+                    <div class="stat-number text-warning"><?php echo (int) ($stat['problem_links'] ?? 0); ?></div>
+                    <div class="stat-label">Cần kiểm tra</div>
+                </div>
+            </div>
+        </article>
+    <?php endforeach; ?>
+    <?php
+    return trim(ob_get_clean());
+}
+
+function render_admin_platform_overview_table($products, $productPlatformMap) {
+    ob_start();
+    ?>
+    <div class="table-responsive">
+        <table class="table admin-table table-hover align-middle mb-0">
+            <thead>
+                <tr>
+                    <th class="ps-4" style="width: 82px;">ID</th>
+                    <th>Sản phẩm</th>
+                    <th>Trạng thái link sàn</th>
+                    <th>Cập nhật cuối</th>
+                    <th class="text-center pe-4" style="width: 150px;">Thao tác</th>
+                </tr>
+            </thead>
+            <tbody>
+                <?php if (!empty($products)): ?>
+                    <?php foreach ($products as $product): ?>
+                        <?php
+                        $productId = (int) $product['id'];
+                        $platformMap = $productPlatformMap[$productId] ?? [];
+                        ?>
+                        <tr>
+                            <td class="ps-4 fw-bold text-muted">#<?php echo $productId; ?></td>
+                            <td>
+                                <div class="d-flex align-items-center gap-3">
+                                    <span class="platform-thumb">
+                                        <?php if (!empty($product['thumbnail_url'])): ?>
+                                            <img src="<?php echo e_admin_platform_overview($product['thumbnail_url']); ?>" alt="<?php echo e_admin_platform_overview($product['name']); ?>">
+                                        <?php else: ?>
+                                            <i class="fas fa-box-open"></i>
+                                        <?php endif; ?>
+                                    </span>
+                                    <span class="min-w-0">
+                                        <span class="fw-bold line-clamp-2" title="<?php echo e_admin_platform_overview($product['name']); ?>">
+                                            <?php echo e_admin_platform_overview($product['name']); ?>
+                                        </span>
+                                        <span class="text-muted small">
+                                            <?php echo !empty($product['category_name']) ? e_admin_platform_overview($product['category_name']) : 'Chưa phân loại'; ?>
+                                        </span>
+                                    </span>
+                                </div>
+                            </td>
+                            <td>
+                                <div class="platform-chips">
+                                    <?php
+                                    $chipStates = [
+                                        'Tiki' => ['active' => $platformMap['tiki_active'] ?? null, 'status' => $platformMap['tiki_status'] ?? null],
+                                        'Shopee' => ['active' => $platformMap['shopee_active'] ?? null, 'status' => $platformMap['shopee_status'] ?? null],
+                                        'Lazada' => ['active' => $platformMap['lazada_active'] ?? null, 'status' => $platformMap['lazada_status'] ?? null],
+                                    ];
+                                    ?>
+                                    <?php foreach ($chipStates as $platform => $stateData): ?>
+                                        <?php
+                                        $state = $stateData['active'];
+                                        $availability = admin_availability_meta($stateData['status'] ?? 'unknown');
+                                        $chipClass = $state === null ? 'missing' : $availability['class'];
+                                        ?>
+                                        <span class="platform-chip <?php echo e_admin_platform_overview($chipClass); ?>">
+                                            <span><?php echo e_admin_platform_overview($platform); ?></span>
+                                            <span><?php echo e_admin_platform_overview($state === null ? 'Chưa gắn' : $availability['label']); ?></span>
+                                        </span>
+                                    <?php endforeach; ?>
+                                </div>
+                            </td>
+                            <td class="text-muted">
+                                <?php echo e_admin_platform_overview(admin_platform_overview_date($product['last_update'] ?? null)); ?>
+                            </td>
+                            <td class="text-center pe-4">
+                                <a href="index.php?role=admin&controller=adminPlatform&action=index&product_id=<?php echo $productId; ?>"
+                                   class="btn btn-outline-primary icon-button"
+                                   title="Quản lý link sàn">
+                                    <i class="fas fa-link"></i>
+                                </a>
+                            </td>
+                        </tr>
+                    <?php endforeach; ?>
+                <?php else: ?>
+                    <tr>
+                        <td colspan="5" class="text-center py-5 text-muted">
+                            <i class="fas fa-box-open fa-2x mb-3 d-block"></i>
+                            Không có sản phẩm phù hợp với bộ lọc hiện tại.
+                        </td>
+                    </tr>
+                <?php endif; ?>
+            </tbody>
+        </table>
+    </div>
+    <?php
+    return trim(ob_get_clean());
+}
+
+if (!empty($platformOverviewPartialOnly)) {
+    return;
+}
 ?>
 <!DOCTYPE html>
 <html lang="vi">
@@ -147,6 +278,12 @@ function admin_availability_meta($status) {
             border-radius: 8px;
         }
 
+        [data-platform-overview-stats].is-loading,
+        [data-platform-overview-table].is-loading {
+            opacity: .55;
+            pointer-events: none;
+        }
+
         @media (max-width: 1199px) {
             .stat-grid { grid-template-columns: 1fr; }
         }
@@ -170,7 +307,7 @@ function admin_availability_meta($status) {
         </div>
 
         <section class="admin-card p-3 mb-3">
-            <form method="GET" class="row g-3 align-items-end">
+            <form action="index.php" method="GET" class="row g-3 align-items-end" data-platform-overview-form data-action-url="index.php">
                 <input type="hidden" name="role" value="admin">
                 <input type="hidden" name="controller" value="adminPlatform">
                 <input type="hidden" name="action" value="index">
@@ -201,12 +338,12 @@ function admin_availability_meta($status) {
                     <button class="btn btn-admin-primary flex-grow-1" type="submit">
                         <i class="fas fa-filter me-2"></i>Lọc
                     </button>
-                    <a class="btn btn-admin-soft" href="index.php?role=admin&controller=adminPlatform&action=index">Xóa lọc</a>
+                    <a class="btn btn-admin-soft" href="index.php?role=admin&controller=adminPlatform&action=index" data-clear-platform-overview>Xóa lọc</a>
                 </div>
             </form>
         </section>
 
-        <section class="stat-grid">
+        <section class="stat-grid" data-platform-overview-stats>
             <?php
             $platformLogos = [
                 'Tiki' => 'https://upload.wikimedia.org/wikipedia/commons/4/43/Logo_Tiki_2023.png',
@@ -239,7 +376,7 @@ function admin_availability_meta($status) {
             <?php endforeach; ?>
         </section>
 
-        <section class="admin-card">
+        <section class="admin-card" data-platform-overview-table>
             <div class="table-responsive">
                 <table class="table admin-table table-hover align-middle mb-0">
                     <thead>
@@ -328,6 +465,110 @@ function admin_availability_meta($status) {
     </div>
 </main>
 
+<script>
+const platformOverviewForm = document.querySelector('[data-platform-overview-form]');
+const platformOverviewStats = document.querySelector('[data-platform-overview-stats]');
+const platformOverviewTable = document.querySelector('[data-platform-overview-table]');
+const clearPlatformOverview = document.querySelector('[data-clear-platform-overview]');
+
+function buildPlatformOverviewUrl(form) {
+    const actionUrl = form.dataset.actionUrl || form.getAttribute('action') || 'index.php';
+    const url = new URL(actionUrl, window.location.href);
+    const params = new URLSearchParams();
+    const keepEmptyKeys = new Set(['role', 'controller', 'action']);
+
+    for (const [key, value] of new FormData(form).entries()) {
+        const stringValue = String(value);
+        if (stringValue !== '' || keepEmptyKeys.has(key)) {
+            params.set(key, stringValue);
+        }
+    }
+
+    url.search = params.toString();
+    return url;
+}
+
+function syncPlatformOverviewFormFromUrl(url) {
+    if (!platformOverviewForm) return;
+
+    const params = new URL(url, window.location.href).searchParams;
+    const platformSelect = platformOverviewForm.querySelector('select[name="platform"]');
+    const statusSelect = platformOverviewForm.querySelector('select[name="availability_status"]');
+
+    if (platformSelect) platformSelect.value = params.get('platform') || '';
+    if (statusSelect) statusSelect.value = params.get('availability_status') || '';
+}
+
+async function readPlatformOverviewJson(response) {
+    try {
+        return await response.json();
+    } catch (error) {
+        return { success: false, message: 'Máy chủ trả về dữ liệu không hợp lệ.' };
+    }
+}
+
+async function loadPlatformOverview(url, pushUrl = true) {
+    if (!platformOverviewStats || !platformOverviewTable) {
+        window.location.href = url;
+        return;
+    }
+
+    platformOverviewStats.classList.add('is-loading');
+    platformOverviewTable.classList.add('is-loading');
+
+    try {
+        const response = await fetch(url, {
+            method: 'GET',
+            headers: {
+                'X-Requested-With': 'XMLHttpRequest',
+                'Accept': 'application/json'
+            }
+        });
+        const data = await readPlatformOverviewJson(response);
+
+        if (!response.ok || !data.success) {
+            window.location.href = url;
+            return;
+        }
+
+        platformOverviewStats.innerHTML = data.stats_html || '';
+        platformOverviewTable.innerHTML = data.table_html || '';
+        syncPlatformOverviewFormFromUrl(url);
+
+        if (pushUrl) {
+            window.history.pushState({ ajaxPlatformOverview: true }, '', url);
+        }
+    } catch (error) {
+        window.location.href = url;
+    } finally {
+        platformOverviewStats.classList.remove('is-loading');
+        platformOverviewTable.classList.remove('is-loading');
+    }
+}
+
+if (platformOverviewForm) {
+    platformOverviewForm.addEventListener('submit', (event) => {
+        event.preventDefault();
+        loadPlatformOverview(buildPlatformOverviewUrl(platformOverviewForm).toString(), true);
+    });
+
+    platformOverviewForm.addEventListener('change', (event) => {
+        if (!event.target.matches('select[name="platform"], select[name="availability_status"]')) return;
+        loadPlatformOverview(buildPlatformOverviewUrl(platformOverviewForm).toString(), true);
+    });
+}
+
+if (clearPlatformOverview) {
+    clearPlatformOverview.addEventListener('click', (event) => {
+        event.preventDefault();
+        loadPlatformOverview(clearPlatformOverview.href, true);
+    });
+}
+
+window.addEventListener('popstate', () => {
+    loadPlatformOverview(window.location.href, false);
+});
+</script>
 <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
 </body>
 </html>

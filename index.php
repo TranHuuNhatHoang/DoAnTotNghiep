@@ -45,6 +45,10 @@ $routes = [
                 'postverify' => 'postVerify',
                 'resendotp' => 'resendOTP',
                 'postlogin' => 'postLogin',
+                'forgotpassword' => 'forgotPassword',
+                'postforgotpassword' => 'postForgotPassword',
+                'resetpassword' => 'resetPassword',
+                'postresetpassword' => 'postResetPassword',
                 'logout' => 'logout',
             ],
         ],
@@ -88,6 +92,15 @@ $routes = [
                 'add' => 'add',
                 'update' => 'update',
                 'delete' => 'delete',
+            ],
+        ],
+        'adminuser' => [
+            'class' => 'AdminUserController',
+            'file' => 'controllers/admin/AdminUserController.php',
+            'actions' => [
+                'index' => 'index',
+                'update' => 'update',
+                'toggleactive' => 'toggleActive',
             ],
         ],
         'bot' => [

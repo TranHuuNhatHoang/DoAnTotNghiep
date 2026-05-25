@@ -136,6 +136,94 @@ class AuthController {
         exit();
     }
 
+    public function forgotPassword() {
+        require_once 'views/user/forgot_password.php';
+    }
+
+    public function postForgotPassword() {
+        if ($_SERVER['REQUEST_METHOD'] !== 'POST') {
+            header("Location: index.php?role=user&controller=auth&action=forgotPassword");
+            exit();
+        }
+
+        $email = trim($_POST['email'] ?? '');
+        $notice = 'Nếu email tồn tại trong hệ thống, mã OTP đặt lại mật khẩu đã được gửi.';
+
+        if (filter_var($email, FILTER_VALIDATE_EMAIL)) {
+            try {
+                $otpCode = str_pad((string) random_int(0, 999999), 6, '0', STR_PAD_LEFT);
+                $otpHash = hash('sha256', $otpCode);
+
+                if ($this->userModel->createPasswordResetOtp($email, $otpHash)) {
+                    if (!MailService::sendPasswordResetOtp($email, $otpCode)) {
+                        error_log('Password reset OTP email failed for: ' . $email);
+                    }
+                }
+            } catch (Exception $e) {
+                error_log('Create password reset OTP failed: ' . $e->getMessage());
+            }
+
+            $_SESSION['password_reset_email'] = $email;
+        }
+
+        $_SESSION['password_reset_notice'] = $notice;
+        header("Location: index.php?role=user&controller=auth&action=resetPassword&msg=otp_sent");
+        exit();
+    }
+
+    public function resetPassword() {
+        if (isset($_GET['token'])) {
+            $_SESSION['password_reset_notice'] = 'Chức năng đặt lại mật khẩu đã chuyển sang xác nhận bằng mã OTP. Vui lòng nhập email để nhận mã OTP mới.';
+            header("Location: index.php?role=user&controller=auth&action=forgotPassword&legacy=1");
+            exit();
+        }
+
+        require_once 'views/user/reset_password.php';
+    }
+
+    public function postResetPassword() {
+        if ($_SERVER['REQUEST_METHOD'] !== 'POST') {
+            header("Location: index.php?role=user&controller=auth&action=login");
+            exit();
+        }
+
+        $email = trim($_POST['email'] ?? '');
+        $otpCode = preg_replace('/\D/', '', trim($_POST['otp_code'] ?? ''));
+        $password = $_POST['password'] ?? '';
+        $confirmPassword = $_POST['confirm_password'] ?? '';
+        $_SESSION['password_reset_email'] = $email;
+
+        if (!filter_var($email, FILTER_VALIDATE_EMAIL) || !preg_match('/^\d{6}$/', $otpCode)) {
+            header("Location: index.php?role=user&controller=auth&action=resetPassword&error=invalid");
+            exit();
+        }
+
+        if (strlen($password) < 6) {
+            header("Location: index.php?role=user&controller=auth&action=resetPassword&error=weak_password");
+            exit();
+        }
+
+        if ($password !== $confirmPassword) {
+            header("Location: index.php?role=user&controller=auth&action=resetPassword&error=password_mismatch");
+            exit();
+        }
+
+        $otpHash = hash('sha256', $otpCode);
+        if (!$this->userModel->getUserByValidPasswordResetOtp($email, $otpHash)) {
+            header("Location: index.php?role=user&controller=auth&action=resetPassword&error=invalid");
+            exit();
+        }
+
+        if ($this->userModel->resetPasswordByOtp($email, $otpHash, $password)) {
+            unset($_SESSION['password_reset_email']);
+            header("Location: index.php?role=user&controller=auth&action=login&msg=reset_success");
+            exit();
+        }
+
+        header("Location: index.php?role=user&controller=auth&action=resetPassword&error=invalid");
+        exit();
+    }
+
     public function logout() {
         session_destroy();
         header("Location: index.php");

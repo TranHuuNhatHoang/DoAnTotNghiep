@@ -53,6 +53,19 @@ class AdminPlatformController {
             $products = $this->getOverviewProducts($filters);
             $platformStats = $this->getPlatformStats();
             $productPlatformMap = $this->getProductPlatformMap();
+
+            if ($this->isAjaxRequest()) {
+                $platformOverviewPartialOnly = true;
+                require_once 'views/admin/platforms_overview.php';
+
+                $this->jsonResponse([
+                    'success' => true,
+                    'stats_html' => render_admin_platform_overview_stats($platformStats),
+                    'table_html' => render_admin_platform_overview_table($products, $productPlatformMap),
+                    'result_count' => count($products),
+                ]);
+            }
+
             require_once 'views/admin/platforms_overview.php';
             return;
         }

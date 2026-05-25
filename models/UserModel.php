@@ -83,10 +83,210 @@ class UserModel {
                 if ($user['is_verified'] == 0) {
                     return 'unverified'; 
                 }
+                if (array_key_exists('is_active', $user) && (int) $user['is_active'] === 0) {
+                    return false;
+                }
                 return $user; 
             }
         }
         return false;
+    }
+
+    public function createPasswordResetToken($email, $tokenHash, $expiresAt) {
+        $stmt = $this->conn->prepare("
+            UPDATE users
+            SET reset_token_hash = ?,
+                reset_token_expires_at = ?,
+                reset_token_used_at = NULL
+            WHERE email = ?
+              AND is_verified = 1
+              AND is_active = 1
+        ");
+        $stmt->bind_param("sss", $tokenHash, $expiresAt, $email);
+        return $stmt->execute() && $stmt->affected_rows === 1;
+    }
+
+    public function getUserByValidResetTokenHash($tokenHash) {
+        $stmt = $this->conn->prepare("
+            SELECT id, email
+            FROM users
+            WHERE reset_token_hash = ?
+              AND reset_token_expires_at > NOW()
+              AND reset_token_used_at IS NULL
+              AND is_verified = 1
+              AND is_active = 1
+            LIMIT 1
+        ");
+        $stmt->bind_param("s", $tokenHash);
+        $stmt->execute();
+        $result = $stmt->get_result();
+        return $result->num_rows === 1 ? $result->fetch_assoc() : null;
+    }
+
+    public function resetPasswordByTokenHash($tokenHash, $newPassword) {
+        $passwordHash = password_hash($newPassword, PASSWORD_DEFAULT);
+        $stmt = $this->conn->prepare("
+            UPDATE users
+            SET password_hash = ?,
+                reset_token_hash = NULL,
+                reset_token_expires_at = NULL,
+                reset_token_used_at = NOW()
+            WHERE reset_token_hash = ?
+              AND reset_token_expires_at > NOW()
+              AND reset_token_used_at IS NULL
+              AND is_verified = 1
+              AND is_active = 1
+        ");
+        $stmt->bind_param("ss", $passwordHash, $tokenHash);
+        return $stmt->execute() && $stmt->affected_rows === 1;
+    }
+
+    public function createPasswordResetOtp($email, $otpHash, $expiresAt = null) {
+        $stmt = $this->conn->prepare("
+            UPDATE users
+            SET reset_token_hash = ?,
+                reset_token_expires_at = DATE_ADD(NOW(), INTERVAL 15 MINUTE),
+                reset_token_used_at = NULL
+            WHERE LOWER(email) = LOWER(?)
+              AND is_verified = 1
+              AND is_active = 1
+        ");
+        $stmt->bind_param("ss", $otpHash, $email);
+        return $stmt->execute() && $stmt->affected_rows === 1;
+    }
+
+    public function getUserByValidPasswordResetOtp($email, $otpHash) {
+        $stmt = $this->conn->prepare("
+            SELECT id, email
+            FROM users
+            WHERE LOWER(email) = LOWER(?)
+              AND reset_token_hash = ?
+              AND reset_token_expires_at > NOW()
+              AND reset_token_used_at IS NULL
+              AND is_verified = 1
+              AND is_active = 1
+            LIMIT 1
+        ");
+        $stmt->bind_param("ss", $email, $otpHash);
+        $stmt->execute();
+        $result = $stmt->get_result();
+        return $result->num_rows === 1 ? $result->fetch_assoc() : null;
+    }
+
+    public function resetPasswordByOtp($email, $otpHash, $newPassword) {
+        $passwordHash = password_hash($newPassword, PASSWORD_DEFAULT);
+        $stmt = $this->conn->prepare("
+            UPDATE users
+            SET password_hash = ?,
+                reset_token_hash = NULL,
+                reset_token_expires_at = NULL,
+                reset_token_used_at = NOW()
+            WHERE LOWER(email) = LOWER(?)
+              AND reset_token_hash = ?
+              AND reset_token_expires_at > NOW()
+              AND reset_token_used_at IS NULL
+              AND is_verified = 1
+              AND is_active = 1
+        ");
+        $stmt->bind_param("sss", $passwordHash, $email, $otpHash);
+        return $stmt->execute() && $stmt->affected_rows === 1;
+    }
+
+    public function getUsersForAdmin($filters = []) {
+        $where = [];
+        $params = [];
+        $types = '';
+
+        $keyword = trim($filters['keyword'] ?? '');
+        if ($keyword !== '') {
+            $where[] = "(email LIKE ? OR full_name LIKE ?)";
+            $like = '%' . $keyword . '%';
+            $params[] = $like;
+            $params[] = $like;
+            $types .= 'ss';
+        }
+
+        $role = $filters['role'] ?? '';
+        if (in_array($role, ['user', 'admin'], true)) {
+            $where[] = "role = ?";
+            $params[] = $role;
+            $types .= 's';
+        }
+
+        if (($filters['is_verified'] ?? '') !== '') {
+            $where[] = "is_verified = ?";
+            $params[] = (int) $filters['is_verified'];
+            $types .= 'i';
+        }
+
+        if (($filters['is_active'] ?? '') !== '') {
+            $where[] = "is_active = ?";
+            $params[] = (int) $filters['is_active'];
+            $types .= 'i';
+        }
+
+        $sql = "SELECT id, email, full_name, role, is_verified, is_active, created_at FROM users";
+        if (!empty($where)) {
+            $sql .= " WHERE " . implode(' AND ', $where);
+        }
+        $sql .= " ORDER BY id DESC";
+
+        $stmt = $this->conn->prepare($sql);
+        if (!$stmt) {
+            return [];
+        }
+        if (!empty($params)) {
+            $stmt->bind_param($types, ...$params);
+        }
+        $stmt->execute();
+        return $stmt->get_result()->fetch_all(MYSQLI_ASSOC);
+    }
+
+    public function getUserForAdmin($id) {
+        $stmt = $this->conn->prepare("SELECT id, email, full_name, role, is_verified, is_active, created_at FROM users WHERE id = ?");
+        $stmt->bind_param("i", $id);
+        $stmt->execute();
+        $result = $stmt->get_result();
+        return $result->num_rows === 1 ? $result->fetch_assoc() : null;
+    }
+
+    public function countActiveAdmins($excludeId = null) {
+        $sql = "SELECT COUNT(*) AS total FROM users WHERE role = 'admin' AND is_active = 1";
+        $params = [];
+        $types = '';
+
+        if ($excludeId !== null) {
+            $sql .= " AND id <> ?";
+            $params[] = (int) $excludeId;
+            $types .= 'i';
+        }
+
+        $stmt = $this->conn->prepare($sql);
+        if (!empty($params)) {
+            $stmt->bind_param($types, ...$params);
+        }
+        $stmt->execute();
+        $row = $stmt->get_result()->fetch_assoc();
+        return (int) ($row['total'] ?? 0);
+    }
+
+    public function updateUserForAdmin($id, $fullName, $role, $isVerified, $isActive) {
+        $stmt = $this->conn->prepare("
+            UPDATE users
+            SET full_name = ?,
+                role = ?,
+                is_verified = ?,
+                is_active = ?
+            WHERE id = ?
+        ");
+        $stmt->bind_param("ssiii", $fullName, $role, $isVerified, $isActive, $id);
+        return $stmt->execute();
+    }
+
+    public function setUserActiveStatus($id, $isActive) {
+        $stmt = $this->conn->prepare("UPDATE users SET is_active = ? WHERE id = ?");
+        $stmt->bind_param("ii", $isActive, $id);
+        return $stmt->execute();
     }
     // --- CÁC HÀM XỬ LÝ THÔNG BÁO WEB ---
     

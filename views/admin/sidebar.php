@@ -283,6 +283,10 @@ function admin_nav_active($condition) {
            class="nav-link <?php echo admin_nav_active($c === 'adminplatform'); ?>">
             <i class="fas fa-link"></i> Link sàn
         </a>
+        <a href="index.php?role=admin&controller=adminUser&action=index"
+           class="nav-link <?php echo admin_nav_active($c === 'adminuser'); ?>">
+            <i class="fas fa-users"></i> Quản lý người dùng
+        </a>
         <a href="index.php?role=admin&controller=bot&action=index"
            class="nav-link <?php echo admin_nav_active($c === 'bot'); ?>">
             <i class="fas fa-robot"></i> Bot crawler

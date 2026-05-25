@@ -73,6 +73,40 @@ class MailService {
         }
     }
 
+    public static function sendPasswordResetOtp($toEmail, $otpCode) {
+        $mail = new PHPMailer(true);
+
+        try {
+            if (!self::configureMailer($mail)) {
+                return false;
+            }
+
+            $safeOtp = htmlspecialchars($otpCode, ENT_QUOTES, 'UTF-8');
+
+            $mail->addAddress($toEmail);
+            $mail->isHTML(true);
+            $mail->Subject = 'Ma OTP dat lai mat khau - SmartPrice';
+            $mail->Body = "
+                <div style='font-family: Arial, sans-serif; padding: 20px; background-color: #f4f7f6;'>
+                    <div style='max-width: 600px; margin: 0 auto; background: white; padding: 30px; border-radius: 10px; box-shadow: 0 4px 10px rgba(0,0,0,0.1);'>
+                        <h2 style='color: #111827; text-align: center;'>Dat lai mat khau</h2>
+                        <p>Chao ban,</p>
+                        <p>Ma OTP dat lai mat khau SmartPrice cua ban la:</p>
+                        <h1 style='text-align: center; color: #e74c3c; font-size: 40px; letter-spacing: 5px; background: #fdf2e9; padding: 15px; border-radius: 8px;'>{$safeOtp}</h1>
+                        <p style='color: #7f8c8d; font-size: 14px;'>Ma nay co hieu luc trong vong <strong>15 phut</strong>. Vui long khong chia se ma nay cho bat ky ai.</p>
+                        <p style='color: #7f8c8d; font-size: 14px;'>Neu ban khong yeu cau dat lai mat khau, hay bo qua email nay.</p>
+                    </div>
+                </div>
+            ";
+
+            $mail->send();
+            return true;
+        } catch (Exception $e) {
+            error_log('Send password reset OTP email failed: ' . $mail->ErrorInfo);
+            return false;
+        }
+    }
+
     public static function sendPriceAlert($toEmail, $productName, $targetPrice, $currentPrice, $platformName, $productUrl) {
         $mail = new PHPMailer(true);
 

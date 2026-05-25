@@ -44,12 +44,19 @@ CREATE TABLE IF NOT EXISTS product_specifications (
 CREATE TABLE IF NOT EXISTS users (
   id INT AUTO_INCREMENT PRIMARY KEY,
   email VARCHAR(255) NOT NULL UNIQUE,
+  full_name VARCHAR(255) NULL,
   password_hash VARCHAR(255) NOT NULL,
   role ENUM('user', 'admin') NOT NULL DEFAULT 'user',
   is_verified TINYINT(1) NOT NULL DEFAULT 0,
+  is_active TINYINT(1) NOT NULL DEFAULT 1,
   otp_code VARCHAR(10) NULL,
   otp_expires_at DATETIME NULL,
-  created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+  reset_token_hash CHAR(64) NULL,
+  reset_token_expires_at DATETIME NULL,
+  reset_token_used_at DATETIME NULL,
+  created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+  KEY idx_users_role_verified_active (role, is_verified, is_active),
+  KEY idx_users_reset_token_hash (reset_token_hash)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 CREATE TABLE IF NOT EXISTS platform_links (

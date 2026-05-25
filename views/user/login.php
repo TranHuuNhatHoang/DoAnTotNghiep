@@ -85,6 +85,8 @@
 
             <?php if(isset($_GET['msg']) && $_GET['msg'] == 'verified'): ?>
                 <div class="alert alert-success">Xác thực thành công. Bạn có thể đăng nhập.</div>
+            <?php elseif(isset($_GET['msg']) && $_GET['msg'] == 'reset_success'): ?>
+                <div class="alert alert-success">Mật khẩu đã được cập nhật. Bạn có thể đăng nhập bằng mật khẩu mới.</div>
             <?php elseif(isset($_GET['error']) && $_GET['error'] == 'invalid_credentials'): ?>
                 <div class="alert alert-danger">Email hoặc mật khẩu không đúng.</div>
             <?php elseif(isset($_GET['error']) && $_GET['error'] == 'unverified'): ?>
@@ -99,6 +101,9 @@
                 <div class="mb-4">
                     <label class="form-label">Mật khẩu</label>
                     <input type="password" name="password" class="form-control" placeholder="Nhập mật khẩu" required>
+                </div>
+                <div class="text-end mb-3">
+                    <a href="index.php?role=user&controller=auth&action=forgotPassword" class="auth-link">Quên mật khẩu?</a>
                 </div>
                 <button type="submit" class="btn-auth">Đăng nhập</button>
             </form>
