@@ -6,10 +6,19 @@ class UserModel {
         $this->conn = $db;
     }
 
+    private function generateOtpCode() {
+        return str_pad((string) random_int(0, 999999), 6, '0', STR_PAD_LEFT);
+    }
+
+    private function hashOtpCode($otpCode) {
+        return hash('sha256', $otpCode);
+    }
+
     // NÂNG CẤP LOGIC: Xử lý triệt để lỗi "Kẹt tài khoản chưa xác thực"
     public function register($email, $password) {
         $password_hash = password_hash($password, PASSWORD_DEFAULT);
-        $otp_code = rand(100000, 999999);
+        $otp_code = $this->generateOtpCode();
+        $otp_hash = $this->hashOtpCode($otp_code);
 
         // BƯỚC 1: Kiểm tra xem Email đã có trong hệ thống chưa và Trạng thái xác thực
         $checkStmt = $this->conn->prepare("SELECT id, is_verified FROM users WHERE email = ?");
@@ -26,8 +35,8 @@ class UserModel {
             } else {
                 // Trường hợp 2: Có email nhưng CHƯA xác thực (Bị rớt mạng, tắt trình duyệt...)
                 // -> Ghi đè mật khẩu mới, tạo OTP mới và gia hạn 5 phút
-                $updateStmt = $this->conn->prepare("UPDATE users SET password_hash = ?, otp_code = ?, otp_expires_at = DATE_ADD(NOW(), INTERVAL 5 MINUTE) WHERE email = ?");
-                $updateStmt->bind_param("sss", $password_hash, $otp_code, $email);
+                $updateStmt = $this->conn->prepare("UPDATE users SET password_hash = ?, otp_code_hash = ?, otp_expires_at = DATE_ADD(NOW(), INTERVAL 5 MINUTE) WHERE email = ?");
+                $updateStmt->bind_param("sss", $password_hash, $otp_hash, $email);
                 
                 if ($updateStmt->execute()) {
                     return $otp_code; // Trả về mã để gửi Mail
@@ -36,8 +45,8 @@ class UserModel {
             }
         } else {
             // Trường hợp 3: Email hoàn toàn mới -> Insert bình thường
-            $insertStmt = $this->conn->prepare("INSERT INTO users (email, password_hash, otp_code, otp_expires_at, is_verified) VALUES (?, ?, ?, DATE_ADD(NOW(), INTERVAL 5 MINUTE), 0)");
-            $insertStmt->bind_param("sss", $email, $password_hash, $otp_code);
+            $insertStmt = $this->conn->prepare("INSERT INTO users (email, password_hash, otp_code_hash, otp_expires_at, is_verified) VALUES (?, ?, ?, DATE_ADD(NOW(), INTERVAL 5 MINUTE), 0)");
+            $insertStmt->bind_param("sss", $email, $password_hash, $otp_hash);
             
             if ($insertStmt->execute()) {
                 return $otp_code; // Trả về mã để gửi Mail
@@ -47,13 +56,14 @@ class UserModel {
     }
 
     public function verifyOTP($email, $otp_code) {
-        $stmt = $this->conn->prepare("SELECT id FROM users WHERE email = ? AND otp_code = ? AND otp_expires_at > NOW() AND is_verified = 0");
-        $stmt->bind_param("ss", $email, $otp_code);
+        $otp_hash = $this->hashOtpCode($otp_code);
+        $stmt = $this->conn->prepare("SELECT id FROM users WHERE email = ? AND otp_code_hash = ? AND otp_expires_at > NOW() AND is_verified = 0");
+        $stmt->bind_param("ss", $email, $otp_hash);
         $stmt->execute();
         $result = $stmt->get_result();
 
         if ($result->num_rows == 1) {
-            $updateStmt = $this->conn->prepare("UPDATE users SET is_verified = 1, otp_code = NULL, otp_expires_at = NULL WHERE email = ?");
+            $updateStmt = $this->conn->prepare("UPDATE users SET is_verified = 1, otp_code_hash = NULL, otp_expires_at = NULL WHERE email = ?");
             $updateStmt->bind_param("s", $email);
             return $updateStmt->execute();
         }
@@ -61,9 +71,10 @@ class UserModel {
     }
 
     public function refreshOTP($email) {
-        $new_otp = rand(100000, 999999);
-        $stmt = $this->conn->prepare("UPDATE users SET otp_code = ?, otp_expires_at = DATE_ADD(NOW(), INTERVAL 5 MINUTE) WHERE email = ? AND is_verified = 0");
-        $stmt->bind_param("ss", $new_otp, $email);
+        $new_otp = $this->generateOtpCode();
+        $new_otp_hash = $this->hashOtpCode($new_otp);
+        $stmt = $this->conn->prepare("UPDATE users SET otp_code_hash = ?, otp_expires_at = DATE_ADD(NOW(), INTERVAL 5 MINUTE) WHERE email = ? AND is_verified = 0");
+        $stmt->bind_param("ss", $new_otp_hash, $email);
         
         if ($stmt->execute()) {
             return $new_otp;
