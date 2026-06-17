@@ -126,6 +126,7 @@ class AuthController {
 
         $_SESSION['user_id'] = $user['id'];
         $_SESSION['user_email'] = $user['email'];
+        $_SESSION['user_full_name'] = trim($user['full_name'] ?? '');
         $_SESSION['user_role'] = $user['role'];
 
         if ($user['role'] === 'admin') {
@@ -221,6 +222,48 @@ class AuthController {
         }
 
         header("Location: index.php?role=user&controller=auth&action=resetPassword&error=invalid");
+        exit();
+    }
+
+    public function profile() {
+        if (!isset($_SESSION['user_id'])) {
+            header("Location: index.php?role=user&controller=auth&action=login");
+            exit();
+        }
+
+        $user = $this->userModel->getUserById((int) $_SESSION['user_id']);
+        if (!$user || (int) ($user['is_active'] ?? 1) === 0) {
+            session_destroy();
+            header("Location: index.php?role=user&controller=auth&action=login");
+            exit();
+        }
+
+        $_SESSION['user_full_name'] = trim($user['full_name'] ?? '');
+        require_once 'views/user/profile.php';
+    }
+
+    public function updateProfile() {
+        if ($_SERVER['REQUEST_METHOD'] !== 'POST' || !isset($_SESSION['user_id'])) {
+            header("Location: index.php?role=user&controller=auth&action=login");
+            exit();
+        }
+
+        $fullName = trim($_POST['full_name'] ?? '');
+        $fullNameLength = function_exists('mb_strlen') ? mb_strlen($fullName, 'UTF-8') : strlen($fullName);
+        if ($fullNameLength > 120) {
+            $_SESSION['profile_error'] = 'Họ tên không được vượt quá 120 ký tự.';
+            header("Location: index.php?role=user&controller=auth&action=profile");
+            exit();
+        }
+
+        if ($this->userModel->updateOwnProfile((int) $_SESSION['user_id'], $fullName)) {
+            $_SESSION['user_full_name'] = $fullName;
+            $_SESSION['profile_success'] = 'Đã cập nhật hồ sơ cá nhân.';
+        } else {
+            $_SESSION['profile_error'] = 'Không thể cập nhật hồ sơ lúc này.';
+        }
+
+        header("Location: index.php?role=user&controller=auth&action=profile");
         exit();
     }
 

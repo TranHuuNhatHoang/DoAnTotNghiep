@@ -103,6 +103,24 @@ class UserModel {
         return false;
     }
 
+    public function getUserById($id) {
+        $stmt = $this->conn->prepare("SELECT id, email, full_name, role, is_verified, is_active, created_at FROM users WHERE id = ? LIMIT 1");
+        if (!$stmt) return null;
+
+        $stmt->bind_param("i", $id);
+        $stmt->execute();
+        $result = $stmt->get_result();
+        return $result->num_rows === 1 ? $result->fetch_assoc() : null;
+    }
+
+    public function updateOwnProfile($id, $fullName) {
+        $stmt = $this->conn->prepare("UPDATE users SET full_name = ? WHERE id = ? AND is_active = 1");
+        if (!$stmt) return false;
+
+        $stmt->bind_param("si", $fullName, $id);
+        return $stmt->execute();
+    }
+
     public function createPasswordResetToken($email, $tokenHash, $expiresAt) {
         $stmt = $this->conn->prepare("
             UPDATE users

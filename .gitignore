@@ -15,5 +15,7 @@ storage/sessions/*
 storage/bot_debug/*
 storage/bot_logs/*
 storage/bot_locks/*
+storage/crawler_reports/*
+!storage/crawler_reports/.gitkeep
 .vscode/
 .idea/

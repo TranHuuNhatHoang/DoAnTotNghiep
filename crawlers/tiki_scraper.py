@@ -9,6 +9,7 @@ import requests
 
 from app_config import get_db_config, load_env
 from bot_lock import FileLock
+from crawler_report import CrawlerRunReport
 
 
 try:
@@ -442,6 +443,15 @@ def update_status(cursor, conn, link_id, status, availability_status=AVAILABILIT
 def update_tiki_prices_to_db():
     conn = None
     cursor = None
+    exit_code = EXIT_OK
+    report = CrawlerRunReport(
+        "Tiki",
+        config={
+            "batch_limit": TIKI_BATCH_LIMIT,
+            "request_timeout": TIKI_REQUEST_TIMEOUT,
+            "retry_count": TIKI_RETRY_COUNT,
+        },
+    )
 
     try:
         log("Bắt đầu chạy bot Tiki")
@@ -456,43 +466,74 @@ def update_tiki_prices_to_db():
         ensure_product_specifications_table(cursor)
         conn.commit()
         tiki_links = fetch_tiki_links(cursor)
+        report.set_total_candidates(len(tiki_links))
 
         log(f"Tìm thấy {len(tiki_links)} link Tiki cần cập nhật.")
         if not tiki_links:
-            return EXIT_OK
+            return exit_code
 
         for index, link in enumerate(tiki_links, start=1):
+            link_started = time.perf_counter()
             log("-" * 60)
             log(f"[{index}/{len(tiki_links)}] Đang quét link Tiki ID={link['id']}")
             try:
                 data = scrape_tiki_data(link["product_url"])
                 if data and data.get("status") == STATUS_SUCCESS:
                     save_tiki_data(cursor, conn, link, data)
+                    report.record_link(
+                        link["id"],
+                        product_id=link.get("product_id"),
+                        status_code=STATUS_SUCCESS,
+                        availability_status=AVAILABILITY_ACTIVE,
+                        price=data.get("current_price"),
+                        elapsed_seconds=time.perf_counter() - link_started,
+                    )
                     log("  [thành công] Đã lưu dữ liệu Tiki vào database.")
                 else:
                     status = data.get("status", STATUS_ERROR) if data else STATUS_ERROR
                     availability_status = data.get("availability_status", AVAILABILITY_FETCH_ERROR) if data else AVAILABILITY_FETCH_ERROR
                     error_message = data.get("error_message", "Không lấy được dữ liệu Tiki") if data else "Không lấy được dữ liệu Tiki"
                     update_status(cursor, conn, link["id"], status, availability_status, error_message)
+                    report.record_link(
+                        link["id"],
+                        product_id=link.get("product_id"),
+                        status_code=status,
+                        availability_status=availability_status,
+                        elapsed_seconds=time.perf_counter() - link_started,
+                        error_message=error_message,
+                    )
                     log(f"  [bỏ qua] Không cập nhật được link ID={link['id']}. Trạng thái={status}.")
             except Exception as exc:
                 update_status(cursor, conn, link["id"], STATUS_ERROR, AVAILABILITY_FETCH_ERROR, str(exc))
+                report.record_link(
+                    link["id"],
+                    product_id=link.get("product_id"),
+                    status_code=STATUS_ERROR,
+                    availability_status=AVAILABILITY_FETCH_ERROR,
+                    elapsed_seconds=time.perf_counter() - link_started,
+                    error_message=str(exc),
+                )
                 log(f"  [lỗi] Lỗi khi xử lý link ID={link['id']}: {exc}")
 
         log("Bot Tiki đã hoàn tất lượt cập nhật.")
-        return EXIT_OK
+        return exit_code
     except mysql.connector.Error as err:
+        exit_code = EXIT_FATAL
         log(f"[lỗi nghiêm trọng] Lỗi MySQL: {err}")
-        return EXIT_FATAL
+        return exit_code
     except Exception as exc:
+        exit_code = EXIT_FATAL
         log(f"[lỗi nghiêm trọng] Bot Tiki bị lỗi: {exc}")
-        return EXIT_FATAL
+        return exit_code
     finally:
         if cursor:
             cursor.close()
         if conn and conn.is_connected():
             conn.close()
             log("Đã đóng kết nối database.")
+        report_path = report.write(exit_code=exit_code)
+        if report_path:
+            log(f"[report] Da luu bao cao crawler: {report_path}")
 
 
 def run_with_lock():

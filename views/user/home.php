@@ -46,7 +46,136 @@ function product_card($p, $mode = 'default') {
     <?php
 }
 
-$userLabel = $_SESSION['user_email'] ?? 'Thành viên';
+function insight_product_card($p) {
+    $id = (int) ($p['id'] ?? 0);
+    $name = $p['name'] ?? 'Sản phẩm';
+    $thumb = trim((string) ($p['thumbnail_url'] ?? ''));
+    $minPrice = $p['min_price'] ?? 0;
+    $categoryName = $p['category_name'] ?? 'Sản phẩm';
+    $recommendationReason = $p['recommendation_reason'] ?? 'Giá hiện tại đang ở vùng hợp lý để cân nhắc mua.';
+    $trendLabel = $p['trend_label'] ?? 'Đang phân tích';
+    ?>
+    <article class="insight-card">
+        <a href="index.php?role=user&controller=product&action=detail&id=<?php echo $id; ?>" class="insight-link">
+            <div class="insight-media">
+                <?php if ($thumb !== ''): ?>
+                    <img src="<?php echo e($thumb); ?>" alt="<?php echo e($name); ?>">
+                <?php else: ?>
+                    <i class="fas fa-box-open"></i>
+                <?php endif; ?>
+            </div>
+            <div class="insight-body">
+                <div class="insight-meta"><?php echo e($categoryName); ?></div>
+                <h3><?php echo e($name); ?></h3>
+                <div class="insight-price"><?php echo price_label($minPrice); ?></div>
+                <div class="insight-reason"><i class="fas fa-lightbulb"></i><?php echo e($recommendationReason); ?></div>
+                <div class="insight-trend"><i class="fas fa-arrow-trend-up"></i>Xu hướng: <?php echo e($trendLabel); ?></div>
+            </div>
+        </a>
+    </article>
+    <?php
+}
+
+function flash_sale_card($p) {
+    $id = (int) ($p['id'] ?? 0);
+    $name = $p['name'] ?? 'Sản phẩm';
+    $thumb = trim((string) ($p['thumbnail_url'] ?? ''));
+    $minPrice = (int) ($p['min_price'] ?? 0);
+    $dealCurrentPrice = (int) ($p['deal_current_price'] ?? 0);
+    $originalPrice = (int) ($p['original_price'] ?? 0);
+    $discountPercent = (int) ($p['discount_percent'] ?? 0);
+    $displayPrice = $dealCurrentPrice > 0 ? $dealCurrentPrice : $minPrice;
+
+    if ($discountPercent <= 0 && $originalPrice > $displayPrice && $displayPrice > 0) {
+        $discountPercent = (int) round((($originalPrice - $displayPrice) / $originalPrice) * 100);
+    }
+    ?>
+    <article class="flash-card">
+        <?php if ($discountPercent > 0): ?>
+            <div class="flash-badge">-<?php echo $discountPercent; ?>%</div>
+        <?php else: ?>
+            <div class="flash-badge">Deal</div>
+        <?php endif; ?>
+
+        <a href="index.php?role=user&controller=product&action=detail&id=<?php echo $id; ?>" class="flash-link">
+            <div class="flash-media">
+                <?php if ($thumb !== ''): ?>
+                    <img src="<?php echo e($thumb); ?>" alt="<?php echo e($name); ?>">
+                <?php else: ?>
+                    <i class="fas fa-box-open"></i>
+                <?php endif; ?>
+            </div>
+
+            <h3><?php echo e($name); ?></h3>
+            <div class="flash-price-row">
+                <?php if ($originalPrice > $displayPrice && $displayPrice > 0): ?>
+                    <span class="flash-original"><?php echo price_label($originalPrice); ?></span>
+                <?php endif; ?>
+                <strong class="flash-price"><?php echo price_label($displayPrice); ?></strong>
+            </div>
+            <div class="flash-note">
+                <i class="fas fa-clock"></i>
+                Giá tốt đang được theo dõi
+            </div>
+        </a>
+    </article>
+    <?php
+}
+
+$userLabel = trim($_SESSION['user_full_name'] ?? '') !== '' ? $_SESSION['user_full_name'] : ($_SESSION['user_email'] ?? 'Thành viên');
+$homeCategories = (isset($categories) && is_array($categories)) ? array_values($categories) : [];
+$quickCategoryLimit = 5;
+$preferredQuickCategoryNames = [
+    'Điện lạnh',
+    'Tivi - Âm thanh',
+    'Điện thoại - Máy tính bảng',
+    'Thiết bị gia dụng',
+    'Thiết bị y tế - Sức khỏe',
+];
+$quickCategories = [];
+
+foreach ($preferredQuickCategoryNames as $preferredName) {
+    foreach ($homeCategories as $cat) {
+        if (isset($cat['name']) && trim((string) $cat['name']) === $preferredName) {
+            $quickCategories[(int) $cat['id']] = $cat;
+            break;
+        }
+    }
+}
+
+foreach ($homeCategories as $cat) {
+    if (count($quickCategories) >= $quickCategoryLimit) {
+        break;
+    }
+
+    $catId = (int) ($cat['id'] ?? 0);
+    if ($catId > 0 && !isset($quickCategories[$catId])) {
+        $quickCategories[$catId] = $cat;
+    }
+}
+
+$quickCategories = array_values($quickCategories);
+$categoryMegaColumns = [];
+
+if (!empty($homeCategories)) {
+    $categoryMegaColumns = array_chunk($homeCategories, max(1, (int) ceil(count($homeCategories) / 4)));
+}
+
+$bannerProducts = [];
+foreach ([$top_deals ?? [], $recommended_buy_products ?? [], $trending_products ?? [], $new_products ?? []] as $productGroup) {
+    if (!empty($productGroup)) {
+        foreach ($productGroup as $product) {
+            if (count($bannerProducts) >= 3) {
+                break 2;
+            }
+            $bannerProducts[] = $product;
+        }
+    }
+}
+
+$todaySuggestionProducts = !empty($recommended_buy_products)
+    ? $recommended_buy_products
+    : array_slice(!empty($top_deals) ? $top_deals : (!empty($trending_products) ? $trending_products : ($new_products ?? [])), 0, 4);
 ?>
 <!DOCTYPE html>
 <html lang="vi">
@@ -231,203 +360,764 @@ $userLabel = $_SESSION['user_email'] ?? 'Thành viên';
         }
 
         .notif-menu {
-            width: min(360px, calc(100vw - 24px));
+            width: min(430px, calc(100vw - 24px));
             border: 0;
-            border-radius: 8px;
+            border-radius: 10px;
             overflow: hidden;
-            box-shadow: 0 16px 40px rgba(16,24,40,0.22);
+            box-shadow: 0 22px 60px rgba(16,24,40,0.26);
         }
 
         .notif-head {
-            background: #111827;
+            background: linear-gradient(135deg, #111827, #263446);
             color: #fff;
-            padding: 14px 16px;
+            padding: 16px 18px;
             display: flex;
             align-items: center;
             justify-content: space-between;
-            font-weight: 800;
+            gap: 16px;
+        }
+
+        .notif-title {
+            display: block;
+            font-weight: 950;
+            font-size: 1rem;
+            line-height: 1.2;
+        }
+
+        .notif-subtitle {
+            display: block;
+            margin-top: 3px;
+            color: #d0d5dd;
+            font-size: .8rem;
+            font-weight: 700;
+        }
+
+        .notif-manage {
+            min-height: 32px;
+            display: inline-flex;
+            align-items: center;
+            gap: 7px;
+            padding: 0 10px;
+            border-radius: 8px;
+            background: rgba(255,255,255,.12);
+            color: #fff;
+            text-decoration: none;
+            font-size: .82rem;
+            font-weight: 850;
+            white-space: nowrap;
+        }
+
+        .notif-manage:hover {
+            color: #fff;
+            background: rgba(255,255,255,.2);
         }
 
         .notif-list {
-            max-height: 320px;
+            max-height: 410px;
             overflow-y: auto;
+            padding: 8px;
+            background: #f8fafc;
+            scrollbar-width: thin;
+            scrollbar-color: #cbd5e1 transparent;
         }
+
+        .notif-list::-webkit-scrollbar { width: 6px; }
+        .notif-list::-webkit-scrollbar-thumb { background: #cbd5e1; border-radius: 999px; }
 
         .notif-item {
             display: flex;
             gap: 12px;
-            padding: 14px 16px;
+            padding: 12px;
             text-decoration: none;
-            border-bottom: 1px solid var(--line);
+            border: 1px solid transparent;
+            border-radius: 8px;
+            background: #fff;
+            color: #111827;
             white-space: normal;
+            box-shadow: 0 6px 16px rgba(16,24,40,.04);
         }
 
-        .notif-item:hover { background: #f9fafb; }
+        .notif-item + .notif-item { margin-top: 8px; }
+
+        .notif-item.is-unread {
+            border-color: #bbf7d0;
+            background: #f0fdf4;
+        }
+
+        .notif-item:hover {
+            color: #111827;
+            border-color: #0b5fff;
+            transform: translateY(-1px);
+            box-shadow: 0 12px 26px rgba(16,24,40,.1);
+        }
+
         .notif-icon {
-            width: 36px;
-            height: 36px;
+            width: 42px;
+            height: 42px;
             border-radius: 8px;
             display: grid;
             place-items: center;
-            background: #ecfdf3;
-            color: var(--green);
+            background: #dcfce7;
+            color: #15803d;
+            flex: 0 0 auto;
+            font-size: 1.05rem;
+        }
+
+        .notif-content {
+            min-width: 0;
+            flex: 1;
+        }
+
+        .notif-topline {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            gap: 10px;
+            margin-bottom: 3px;
+        }
+
+        .notif-kicker {
+            color: #15803d;
+            font-size: .74rem;
+            font-weight: 950;
+            text-transform: uppercase;
+        }
+
+        .notif-unread-dot {
+            width: 8px;
+            height: 8px;
+            border-radius: 999px;
+            background: #16a34a;
             flex: 0 0 auto;
         }
 
+        .notif-product {
+            display: -webkit-box;
+            -webkit-line-clamp: 2;
+            -webkit-box-orient: vertical;
+            overflow: hidden;
+            color: #111827;
+            font-size: .92rem;
+            line-height: 1.35;
+            font-weight: 900;
+        }
+
+        .notif-message {
+            display: block;
+            margin-top: 4px;
+            color: #667085;
+            font-size: .8rem;
+            font-weight: 650;
+            line-height: 1.35;
+        }
+
+        .notif-meta {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            gap: 10px;
+            margin-top: 9px;
+            color: #667085;
+            font-size: .78rem;
+            font-weight: 750;
+        }
+
+        .notif-open {
+            color: #0b5fff;
+            font-weight: 900;
+            white-space: nowrap;
+        }
+
+        .notif-empty {
+            margin: 8px;
+            padding: 34px 18px;
+            border-radius: 8px;
+            background: #fff;
+            text-align: center;
+            color: #667085;
+            font-weight: 750;
+        }
+
+        .notif-empty i {
+            width: 54px;
+            height: 54px;
+            display: inline-grid;
+            place-items: center;
+            border-radius: 14px;
+            margin-bottom: 12px;
+            background: #eef4ff;
+            color: #0b5fff;
+            font-size: 1.35rem;
+        }
+
+        .notif-foot {
+            padding: 10px;
+            background: #fff;
+            border-top: 1px solid var(--line);
+        }
+
+        .notif-foot a {
+            min-height: 38px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            gap: 8px;
+            border-radius: 8px;
+            background: #111827;
+            color: #fff;
+            text-decoration: none;
+            font-weight: 900;
+        }
+
         .category-bar {
-            background: var(--surface);
+            position: relative;
+            z-index: 20;
+            background: #fff;
             border-bottom: 1px solid var(--line);
         }
 
-        .category-strip {
+        .category-nav {
+            position: relative;
             display: flex;
             align-items: center;
-            gap: 10px;
-            padding: 12px 0;
+            gap: 18px;
+            min-height: 58px;
+        }
+
+        .category-menu-shell {
+            position: static;
+            flex: 0 0 auto;
+        }
+
+        .category-trigger {
+            height: 58px;
+            display: inline-flex;
+            align-items: center;
+            gap: 14px;
+            padding: 0 16px 0 6px;
+            border: 0;
+            border-radius: 0;
+            background: transparent;
+            color: #f04438;
+            font-size: 1rem;
+            font-weight: 900;
+            white-space: nowrap;
+        }
+
+        .category-trigger:hover,
+        .category-trigger:focus {
+            color: #d92d20;
+        }
+
+        .category-trigger::after { display: none; }
+
+        .category-trigger i {
+            width: 28px;
+            color: #ff3d12;
+            font-size: 1.5rem;
+            text-align: center;
+        }
+
+        .category-divider {
+            width: 1px;
+            height: 28px;
+            background: #ff6b4a;
+            flex: 0 0 auto;
+        }
+
+        .category-strip {
+            min-width: 0;
+            flex: 1 1 auto;
+            display: flex;
+            align-items: center;
+            gap: 30px;
             overflow-x: auto;
             scrollbar-width: none;
         }
 
         .category-strip::-webkit-scrollbar { display: none; }
-        .cat-chip {
-            height: 40px;
+
+        .cat-link {
+            height: 58px;
             display: inline-flex;
             align-items: center;
-            gap: 9px;
-            padding: 0 14px;
-            border: 1px solid var(--line);
-            border-radius: 8px;
-            background: #fff;
-            color: var(--ink);
+            color: #111827;
             text-decoration: none;
-            font-weight: 700;
+            font-size: 0.96rem;
+            font-weight: 780;
             white-space: nowrap;
+            border-bottom: 3px solid transparent;
         }
 
-        .cat-chip:hover {
-            color: #101828;
-            border-color: var(--brand);
-            background: #fffbeb;
+        .cat-link:hover,
+        .cat-link:focus {
+            color: #f04438;
+            border-bottom-color: #f04438;
         }
 
-        .cat-chip i { color: var(--blue); width: 18px; text-align: center; }
+        .category-mega {
+            left: 0;
+            right: 0;
+            top: 100%;
+            width: 100%;
+            padding: 0;
+            border: 1px solid var(--line);
+            border-top: 0;
+            border-radius: 0 0 8px 8px;
+            overflow: hidden;
+            box-shadow: 0 24px 55px rgba(16, 24, 40, 0.14);
+            transform: none !important;
+        }
 
-        .market-band {
-            background: #ffffff;
+        .category-mega-top {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            gap: 16px;
+            min-height: 58px;
+            padding: 0 18px;
+            background: #f7f7f8;
             border-bottom: 1px solid var(--line);
         }
 
-        .market-layout {
+        .category-mega-title {
+            display: inline-flex;
+            align-items: center;
+            gap: 14px;
+            color: #f04438;
+            font-size: 1rem;
+            font-weight: 900;
+        }
+
+        .category-mega-title i {
+            width: 26px;
+            font-size: 1.45rem;
+            text-align: center;
+        }
+
+        .category-close {
+            border: 0;
+            background: transparent;
+            color: #98a2b3;
+            font-weight: 750;
+            display: inline-flex;
+            align-items: center;
+            gap: 8px;
+            padding: 8px 0;
+        }
+
+        .category-close:hover {
+            color: #111827;
+        }
+
+        .category-mega-grid {
             display: grid;
-            grid-template-columns: 1.25fr 0.75fr;
-            gap: 16px;
+            grid-template-columns: repeat(4, minmax(0, 1fr));
+            column-gap: 34px;
+            row-gap: 10px;
+            padding: 22px 24px 26px;
+            background: #fff;
+        }
+
+        .category-mega-item {
+            display: grid;
+            grid-template-columns: 42px minmax(0, 1fr);
+            align-items: center;
+            gap: 12px;
+            min-height: 54px;
+            padding: 7px 8px;
+            border-radius: 8px;
+            color: #111827;
+            text-decoration: none;
+            font-weight: 700;
+            font-size: 0.98rem;
+        }
+
+        .category-mega-item:hover {
+            color: #f04438;
+            background: #fff7ed;
+        }
+
+        .category-mega-icon {
+            width: 42px;
+            height: 42px;
+            border-radius: 8px;
+            display: grid;
+            place-items: center;
+            background: #f2f4f7;
+            color: var(--blue);
+            font-size: 1.05rem;
+        }
+
+        .category-mega-name {
+            min-width: 0;
+            line-height: 1.35;
+        }
+
+        .category-mega-foot {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            gap: 12px;
+            padding: 12px 18px;
+            border-top: 1px solid var(--line);
+            background: #f9fafb;
+            color: var(--muted);
+            font-size: 0.88rem;
+            font-weight: 700;
+        }
+
+        .category-mega-foot a {
+            color: #111827;
+            text-decoration: none;
+            font-weight: 800;
+        }
+
+        .promo-band {
+            background: #f5f7fb;
+            border-bottom: 1px solid var(--line);
+        }
+
+        .promo-layout {
+            display: grid;
+            grid-template-columns: minmax(0, 2.1fr) minmax(280px, 1fr);
+            gap: 18px;
             padding: 22px 0;
         }
 
-        .deal-stage {
-            min-height: 230px;
+        .promo-carousel,
+        .promo-slide,
+        .promo-side-card {
             border-radius: 8px;
-            background:
-                linear-gradient(135deg, rgba(247,198,0,0.95), rgba(255,237,120,0.9)),
-                linear-gradient(135deg, #111827, #344054);
-            padding: 28px;
-            display: grid;
-            grid-template-columns: minmax(0, 1fr) auto;
-            align-items: center;
             overflow: hidden;
         }
 
-        .deal-stage h1 {
-            font-size: clamp(1.65rem, 3vw, 2.55rem);
-            line-height: 1.08;
+        .promo-carousel {
+            min-height: 310px;
+            background: #ff4b17;
+            box-shadow: 0 16px 36px rgba(16,24,40,.08);
+        }
+
+        .promo-slide {
+            min-height: 310px;
+            display: grid;
+            grid-template-columns: minmax(0, 1fr) 230px;
+            align-items: center;
+            gap: 20px;
+            padding: 34px 42px;
+            color: #fff;
+            background:
+                radial-gradient(circle at 82% 20%, rgba(255,255,255,.28), transparent 26%),
+                linear-gradient(135deg, #ff3d12, #ff7a00);
+        }
+
+        .promo-slide.blue {
+            background:
+                radial-gradient(circle at 82% 20%, rgba(255,255,255,.25), transparent 26%),
+                linear-gradient(135deg, #0b5fff, #00a3ff);
+        }
+
+        .promo-slide.dark {
+            background:
+                radial-gradient(circle at 82% 20%, rgba(247,198,0,.24), transparent 26%),
+                linear-gradient(135deg, #101828, #344054);
+        }
+
+        .promo-kicker {
+            display: inline-flex;
+            align-items: center;
+            gap: 8px;
+            height: 30px;
+            padding: 0 11px;
+            border-radius: 999px;
+            background: rgba(255,255,255,.18);
             font-weight: 900;
-            margin: 0 0 10px;
-            color: #111827;
+            font-size: .82rem;
+        }
+
+        .promo-slide h1 {
+            margin: 16px 0 10px;
+            max-width: 600px;
+            color: #fff;
+            font-size: clamp(2rem, 4vw, 3.45rem);
+            line-height: 1.02;
+            font-weight: 950;
             letter-spacing: 0;
         }
 
-        .deal-stage p {
-            color: #344054;
-            margin: 0;
+        .promo-slide p {
             max-width: 560px;
-            font-weight: 600;
+            margin: 0;
+            color: rgba(255,255,255,.9);
+            font-weight: 700;
+            line-height: 1.5;
         }
 
-        .deal-actions {
+        .promo-actions {
             display: flex;
             flex-wrap: wrap;
             gap: 10px;
             margin-top: 22px;
         }
 
-        .deal-button {
+        .promo-button {
             height: 42px;
             display: inline-flex;
             align-items: center;
             gap: 8px;
             padding: 0 14px;
             border-radius: 8px;
+            background: #fff;
+            color: #111827;
             text-decoration: none;
-            font-weight: 800;
-            background: #111827;
-            color: #fff;
+            font-weight: 900;
         }
 
-        .deal-button:hover { color: #fff; background: #1f2937; }
-        .deal-button.light { background: rgba(255,255,255,0.72); color: #111827; }
-        .deal-button.light:hover { color: #111827; background: #fff; }
+        .promo-button:hover { color: #111827; background: #fff7cc; }
+        .promo-button.dark { background: #111827; color: #fff; }
+        .promo-button.dark:hover { color: #fff; background: #1f2937; }
 
-        .deal-visual {
-            width: 170px;
-            height: 170px;
+        .promo-products {
+            display: grid;
+            gap: 12px;
+        }
+
+        .promo-mini-product {
+            min-height: 86px;
+            display: grid;
+            grid-template-columns: 70px minmax(0, 1fr);
+            gap: 10px;
+            align-items: center;
+            padding: 10px;
             border-radius: 8px;
-            background: rgba(255,255,255,0.34);
+            background: rgba(255,255,255,.18);
+            backdrop-filter: blur(6px);
+        }
+
+        .promo-mini-product img,
+        .promo-mini-product .promo-mini-icon {
+            width: 70px;
+            height: 66px;
+            object-fit: contain;
+            border-radius: 8px;
+            background: #fff;
+        }
+
+        .promo-mini-product .promo-mini-icon {
             display: grid;
             place-items: center;
-            color: #111827;
-            font-size: 4.4rem;
+            color: #ff4b17;
+            font-size: 1.5rem;
         }
 
-        .side-panel {
+        .promo-mini-product strong {
+            display: -webkit-box;
+            -webkit-line-clamp: 2;
+            -webkit-box-orient: vertical;
+            overflow: hidden;
+            color: #fff;
+            font-size: .88rem;
+            line-height: 1.3;
+        }
+
+        .promo-mini-product span {
+            display: block;
+            margin-top: 4px;
+            color: #fff7cc;
+            font-weight: 950;
+        }
+
+        .promo-side {
             display: grid;
-            gap: 16px;
+            gap: 18px;
         }
 
-        .side-tile {
-            border-radius: 8px;
-            min-height: 107px;
-            padding: 18px;
-            background: #f2f4f7;
+        .promo-side-card {
+            min-height: 146px;
+            position: relative;
             display: flex;
             align-items: center;
             justify-content: space-between;
             gap: 16px;
+            padding: 22px;
+            color: #fff;
             text-decoration: none;
+            background: linear-gradient(135deg, #d92d20, #ff7a00);
         }
 
-        .side-tile:nth-child(2) { background: #eef4ff; }
-        .side-tile strong {
+        .promo-side-card:nth-child(2) {
+            background: linear-gradient(135deg, #0b5fff, #00a3ff);
+        }
+
+        .promo-side-card strong {
             display: block;
-            color: #111827;
-            font-size: 1.02rem;
-            margin-bottom: 4px;
+            max-width: 250px;
+            color: #fff;
+            font-size: 1.25rem;
+            line-height: 1.2;
+            font-weight: 950;
         }
 
-        .side-tile span {
-            color: var(--muted);
-            font-size: 0.88rem;
-            font-weight: 600;
+        .promo-side-card span {
+            display: block;
+            margin-top: 8px;
+            color: rgba(255,255,255,.88);
+            font-weight: 700;
         }
 
-        .side-tile i {
-            width: 44px;
-            height: 44px;
+        .promo-side-card i {
+            width: 64px;
+            height: 64px;
             border-radius: 8px;
             display: grid;
             place-items: center;
-            background: #fff;
-            color: var(--blue);
+            background: rgba(255,255,255,.16);
+            font-size: 2rem;
             flex: 0 0 auto;
+        }
+
+        .flash-sale-bar {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            gap: 18px;
+            margin: 0 0 24px;
+            padding: 16px 22px;
+            border-radius: 8px;
+            background: linear-gradient(90deg, #ff3d12, #f04438);
+            color: #fff;
+        }
+
+        .flash-sale-title {
+            display: inline-flex;
+            align-items: center;
+            gap: 10px;
+            font-size: 1.45rem;
+            font-weight: 950;
+        }
+
+        .flash-countdown {
+            display: inline-flex;
+            align-items: center;
+            gap: 8px;
+        }
+
+        .flash-countdown span {
+            min-width: 42px;
+            height: 42px;
+            display: grid;
+            place-items: center;
+            border-radius: 8px;
+            background: #1f2937;
+            color: #fff;
+            font-size: 1.1rem;
+            font-weight: 950;
+        }
+
+        .flash-product-grid {
+            display: grid;
+            grid-template-columns: repeat(4, minmax(0, 1fr));
+            gap: 14px;
+            margin-bottom: 34px;
+        }
+
+        .flash-card {
+            position: relative;
+            background: #fff;
+            border: 1px solid #ffd3c4;
+            border-radius: 8px;
+            overflow: hidden;
+            box-shadow: 0 12px 26px rgba(217,45,32,.08);
+        }
+
+        .flash-badge {
+            position: absolute;
+            top: 10px;
+            left: 10px;
+            z-index: 2;
+            min-width: 52px;
+            height: 28px;
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            padding: 0 9px;
+            border-radius: 6px;
+            background: #d92d20;
+            color: #fff;
+            font-size: .78rem;
+            font-weight: 950;
+        }
+
+        .flash-link {
+            display: block;
+            height: 100%;
+            color: #111827;
+            text-decoration: none;
+            padding: 12px;
+        }
+
+        .flash-media {
+            height: 170px;
+            display: grid;
+            place-items: center;
+            margin-bottom: 12px;
+            border-radius: 8px;
+            background: #fff7ed;
+            overflow: hidden;
+        }
+
+        .flash-media img {
+            width: 100%;
+            height: 100%;
+            object-fit: contain;
+            padding: 12px;
+        }
+
+        .flash-media i {
+            color: #ffb088;
+            font-size: 3rem;
+        }
+
+        .flash-card h3 {
+            min-height: 42px;
+            margin: 0 0 10px;
+            font-size: .96rem;
+            line-height: 1.35;
+            font-weight: 850;
+            display: -webkit-box;
+            -webkit-line-clamp: 2;
+            -webkit-box-orient: vertical;
+            overflow: hidden;
+        }
+
+        .flash-price-row {
+            display: flex;
+            align-items: baseline;
+            flex-wrap: wrap;
+            gap: 7px;
+        }
+
+        .flash-original {
+            color: #98a2b3;
+            font-size: .86rem;
+            font-weight: 750;
+            text-decoration: line-through;
+        }
+
+        .flash-price {
+            color: #d92d20;
+            font-size: 1.15rem;
+            font-weight: 950;
+        }
+
+        .flash-note {
+            display: inline-flex;
+            align-items: center;
+            gap: 6px;
+            margin-top: 10px;
+            color: #667085;
+            font-size: .78rem;
+            font-weight: 750;
         }
 
         .section-wrap { padding: 28px 0 44px; }
@@ -466,6 +1156,119 @@ $userLabel = $_SESSION['user_email'] ?? 'Thành viên';
             display: grid;
             grid-template-columns: repeat(4, minmax(0, 1fr));
             gap: 14px;
+        }
+
+        .insight-grid {
+            display: grid;
+            grid-template-columns: repeat(4, minmax(0, 1fr));
+            gap: 14px;
+        }
+
+        .insight-card {
+            background: #ffffff;
+            border: 1px solid #dbeafe;
+            border-radius: 8px;
+            overflow: hidden;
+            box-shadow: 0 12px 28px rgba(16,24,40,.07);
+            min-height: 100%;
+        }
+
+        .insight-link {
+            display: grid;
+            grid-template-rows: 160px minmax(0, 1fr);
+            height: 100%;
+            color: var(--ink);
+            text-decoration: none;
+        }
+
+        .insight-media {
+            position: relative;
+            background: #eff6ff;
+            display: grid;
+            place-items: center;
+            overflow: hidden;
+            padding: 12px;
+        }
+
+        .insight-media::before {
+            content: "Nên mua";
+            position: absolute;
+            top: 10px;
+            left: 10px;
+            z-index: 2;
+            height: 26px;
+            display: inline-flex;
+            align-items: center;
+            padding: 0 9px;
+            border-radius: 6px;
+            background: #16a34a;
+            color: #fff;
+            font-size: .75rem;
+            font-weight: 900;
+        }
+
+        .insight-media img {
+            width: 100%;
+            height: 100%;
+            object-fit: contain;
+            padding: 8px;
+        }
+
+        .insight-media i {
+            color: #93c5fd;
+            font-size: 3rem;
+        }
+
+        .insight-body {
+            padding: 14px;
+            display: flex;
+            flex-direction: column;
+            gap: 8px;
+        }
+
+        .insight-meta {
+            color: var(--muted);
+            font-size: .78rem;
+            font-weight: 800;
+        }
+
+        .insight-body h3 {
+            margin: 0;
+            min-height: 42px;
+            font-size: .96rem;
+            line-height: 1.35;
+            font-weight: 850;
+            display: -webkit-box;
+            -webkit-line-clamp: 2;
+            -webkit-box-orient: vertical;
+            overflow: hidden;
+        }
+
+        .insight-price {
+            color: var(--accent);
+            font-size: 1.15rem;
+            font-weight: 950;
+        }
+
+        .insight-reason,
+        .insight-trend {
+            display: flex;
+            align-items: flex-start;
+            gap: 7px;
+            color: var(--muted);
+            font-size: .8rem;
+            font-weight: 750;
+            line-height: 1.35;
+        }
+
+        .insight-reason i {
+            color: #16a34a;
+            margin-top: 2px;
+        }
+
+        .insight-trend i {
+            color: var(--blue);
+            margin-top: 2px;
         }
 
         .product-card {
@@ -641,12 +1444,158 @@ $userLabel = $_SESSION['user_email'] ?? 'Thành viên';
             font-weight: 700;
         }
 
+        .site-footer {
+            background: #eef1f6;
+            color: #111827;
+            border-top: 1px solid #d9dee8;
+        }
+
+        .footer-grid {
+            display: grid;
+            grid-template-columns: 1.45fr 1fr 1fr 1fr;
+            gap: 46px;
+            padding: 38px 0 30px;
+        }
+
+        .footer-brand {
+            display: inline-flex;
+            align-items: center;
+            gap: 10px;
+            color: #111827;
+            font-size: 1.6rem;
+            font-weight: 950;
+            text-decoration: none;
+        }
+
+        .footer-brand span:first-child {
+            width: 44px;
+            height: 44px;
+            border-radius: 10px;
+            display: grid;
+            place-items: center;
+            background: #2aa7df;
+            color: #fff;
+        }
+
+        .footer-desc {
+            max-width: 360px;
+            margin: 16px 0 0;
+            color: #344054;
+            line-height: 1.55;
+            font-weight: 600;
+        }
+
+        .footer-title {
+            margin: 0 0 18px;
+            color: #111827;
+            font-size: 1.12rem;
+            font-weight: 900;
+        }
+
+        .footer-links {
+            display: grid;
+            gap: 11px;
+        }
+
+        .footer-links a,
+        .footer-links span {
+            color: #1f2937;
+            text-decoration: none;
+            font-size: 0.95rem;
+            font-weight: 650;
+        }
+
+        .footer-links a:hover {
+            color: #0b5fff;
+        }
+
+        .footer-company {
+            margin-top: 18px;
+        }
+
+        .footer-company strong {
+            display: block;
+            margin-bottom: 8px;
+            color: #111827;
+            font-size: 1rem;
+            font-weight: 900;
+        }
+
+        .footer-badges {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 10px;
+            margin-top: 18px;
+        }
+
+        .footer-badge {
+            height: 34px;
+            display: inline-flex;
+            align-items: center;
+            gap: 7px;
+            padding: 0 10px;
+            border-radius: 8px;
+            background: #fff;
+            border: 1px solid #d0d5dd;
+            color: #111827;
+            font-size: .82rem;
+            font-weight: 900;
+        }
+
+        .footer-badge i { color: #16a34a; }
+
+        .partner-button {
+            width: fit-content;
+            min-height: 54px;
+            display: inline-flex;
+            align-items: center;
+            gap: 12px;
+            padding: 10px 14px;
+            border-radius: 8px;
+            background: #e92b2b;
+            color: #fff !important;
+            text-decoration: none;
+            font-weight: 900;
+            line-height: 1.15;
+        }
+
+        .partner-button i {
+            font-size: 1.6rem;
+        }
+
+        .footer-social {
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            width: 48px;
+            height: 48px;
+            border-radius: 50%;
+            background: #315ca8;
+            color: #fff !important;
+            font-size: 1.4rem;
+            text-decoration: none;
+        }
+
+        .footer-bottom {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            gap: 16px;
+            padding: 16px 0;
+            border-top: 1px solid #d9dee8;
+            color: #667085;
+            font-size: 0.88rem;
+            font-weight: 650;
+        }
+
         @media (max-width: 1100px) {
             .header-grid { grid-template-columns: 1fr; padding: 14px 0; }
             .brand { justify-content: center; }
             .header-actions { justify-content: center; flex-wrap: wrap; }
-            .market-layout { grid-template-columns: 1fr; }
-            .product-grid { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+            .promo-layout { grid-template-columns: 1fr; }
+            .product-grid,
+            .insight-grid { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+            .footer-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
         }
 
         @media (max-width: 768px) {
@@ -654,17 +1603,67 @@ $userLabel = $_SESSION['user_email'] ?? 'Thành viên';
             .header-grid { gap: 12px; }
             .search-form { grid-template-columns: 1fr 48px; }
             .platform-select { display: none; }
-            .deal-stage { grid-template-columns: 1fr; padding: 22px; min-height: auto; }
-            .deal-visual { display: none; }
-            .side-panel { grid-template-columns: 1fr; }
-            .product-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+            .category-nav {
+                align-items: stretch;
+                flex-direction: column;
+                gap: 0;
+                padding: 8px 0;
+            }
+            .category-trigger {
+                width: 100%;
+                height: 46px;
+                justify-content: flex-start;
+                padding: 0;
+            }
+            .category-divider { display: none; }
+            .category-strip {
+                gap: 20px;
+                overflow-x: auto;
+                padding-bottom: 4px;
+                scrollbar-width: none;
+            }
+            .category-strip::-webkit-scrollbar { display: none; }
+            .cat-link {
+                height: 40px;
+                font-size: 0.95rem;
+            }
+            .category-mega {
+                width: 100%;
+                max-height: 72vh;
+                overflow-y: auto;
+                border-top: 1px solid var(--line);
+            }
+            .category-mega-top { padding: 0 14px; }
+            .category-mega-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+            .promo-slide {
+                min-height: 290px;
+                grid-template-columns: 1fr;
+                padding: 26px;
+            }
+            .promo-products { display: none; }
+            .promo-side { grid-template-columns: 1fr; }
+            .flash-sale-bar {
+                align-items: flex-start;
+                flex-direction: column;
+            }
+            .flash-product-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+            .product-grid,
+            .insight-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
             .section-header { align-items: start; flex-direction: column; }
             .action-btn span { display: none; }
             .action-btn.primary span { display: inline; }
+            .footer-grid { grid-template-columns: 1fr; }
+            .footer-bottom { align-items: flex-start; flex-direction: column; }
         }
 
         @media (max-width: 480px) {
-            .product-grid { grid-template-columns: 1fr; }
+            .category-mega-grid { grid-template-columns: 1fr; }
+            .category-mega-foot { align-items: flex-start; flex-direction: column; }
+            .promo-slide h1 { font-size: 2rem; }
+            .flash-sale-title { font-size: 1.2rem; }
+            .flash-product-grid { grid-template-columns: 1fr; }
+            .product-grid,
+            .insight-grid { grid-template-columns: 1fr; }
             .product-card { min-height: auto; }
         }
     </style>
@@ -678,7 +1677,7 @@ $userLabel = $_SESSION['user_email'] ?? 'Thành viên';
             <span><i class="fas fa-bell me-1"></i> Cảnh báo giảm giá</span>
         </div>
         <div class="topbar-links">
-            <a href="index.php?role=user&controller=product&action=myAlerts">Danh sách theo dõi</a>
+            <a href="index.php?role=user&controller=product&action=myAlerts">Dashboard của tôi</a>
             <?php if(isset($_SESSION['user_role']) && $_SESSION['user_role'] === 'admin'): ?>
                 <a href="index.php?role=admin&controller=dashboard&action=index">Quản trị</a>
             <?php endif; ?>
@@ -718,7 +1717,7 @@ $userLabel = $_SESSION['user_email'] ?? 'Thành viên';
         <div class="header-actions">
             <?php if(isset($_SESSION['user_id'])): ?>
                 <a href="index.php?role=user&controller=product&action=myAlerts" class="action-btn">
-                    <i class="fas fa-heart"></i><span>Theo dõi</span>
+                    <i class="fas fa-chart-line"></i><span>Dashboard</span>
                 </a>
 
                 <div class="dropdown">
@@ -731,29 +1730,56 @@ $userLabel = $_SESSION['user_email'] ?? 'Thành viên';
 
                     <div class="dropdown-menu dropdown-menu-end notif-menu">
                         <div class="notif-head">
-                            <span>Thông báo</span>
-                            <a href="index.php?role=user&controller=product&action=myAlerts" class="text-white text-decoration-none small">Quản lý</a>
+                            <span>
+                                <span class="notif-title">Thông báo giá</span>
+                                <span class="notif-subtitle"><?php echo (int) ($unread_count ?? 0); ?> thông báo chưa đọc</span>
+                            </span>
+                            <a href="index.php?role=user&controller=product&action=myAlerts" class="notif-manage">
+                                <i class="fas fa-chart-line"></i>Quản lý
+                            </a>
                         </div>
                         <div class="notif-list">
                             <?php if(isset($notifications) && !empty($notifications)): ?>
                                 <?php foreach($notifications as $notif): ?>
-                                    <a class="notif-item <?php echo ((int) $notif['is_read'] === 0) ? 'bg-light' : ''; ?>"
+                                    <?php
+                                        $isUnread = ((int) ($notif['is_read'] ?? 0) === 0);
+                                        $productName = trim((string) ($notif['product_name'] ?? 'Sản phẩm đang theo dõi'));
+                                        $message = trim((string) ($notif['message'] ?? 'Mở chi tiết để kiểm tra mức giá mới.'));
+                                    ?>
+                                    <a class="notif-item <?php echo $isUnread ? 'is-unread' : ''; ?>"
                                        href="index.php?role=user&controller=product&action=readNotification&notif_id=<?php echo (int) $notif['id']; ?>&product_id=<?php echo (int) $notif['product_id']; ?>">
                                         <span class="notif-icon"><i class="fas fa-arrow-trend-down"></i></span>
-                                        <span>
-                                            <strong class="d-block text-dark small">Giá đã chạm mức kỳ vọng</strong>
-                                            <span class="text-muted small"><?php echo e(date('d/m/Y H:i', strtotime($notif['created_at']))); ?></span>
+                                        <span class="notif-content">
+                                            <span class="notif-topline">
+                                                <span class="notif-kicker">Giá đã chạm ngưỡng</span>
+                                                <?php if($isUnread): ?><span class="notif-unread-dot"></span><?php endif; ?>
+                                            </span>
+                                            <strong class="notif-product"><?php echo e($productName); ?></strong>
+                                            <span class="notif-message"><?php echo e($message); ?></span>
+                                            <span class="notif-meta">
+                                                <span><i class="fas fa-clock me-1"></i><?php echo e(date('d/m/Y H:i', strtotime($notif['created_at']))); ?></span>
+                                                <span class="notif-open">Xem giá</span>
+                                            </span>
                                         </span>
                                     </a>
                                 <?php endforeach; ?>
                             <?php else: ?>
-                                <div class="text-center text-muted py-4 small fw-bold">Chưa có thông báo mới.</div>
+                                <div class="notif-empty">
+                                    <i class="fas fa-bell-slash"></i>
+                                    <div>Chưa có thông báo giá mới.</div>
+                                    <small class="d-block mt-1">Khi sản phẩm chạm mức giá bạn đặt, thông báo sẽ xuất hiện tại đây.</small>
+                                </div>
                             <?php endif; ?>
+                        </div>
+                        <div class="notif-foot">
+                            <a href="index.php?role=user&controller=product&action=myAlerts">
+                                <i class="fas fa-list-check"></i>Xem dashboard giá
+                            </a>
                         </div>
                     </div>
                 </div>
 
-                <a href="index.php?role=user&controller=auth&action=logout" class="action-btn">
+                <a href="index.php?role=user&controller=auth&action=profile" class="action-btn">
                     <i class="fas fa-user"></i><span><?php echo e($userLabel); ?></span>
                 </a>
             <?php else: ?>
@@ -766,38 +1792,172 @@ $userLabel = $_SESSION['user_email'] ?? 'Thành viên';
 </header>
 
 <nav class="category-bar">
-    <div class="container category-strip">
-        <a class="cat-chip" href="index.php"><i class="fas fa-fire"></i>Tất cả</a>
-        <?php if(isset($categories)): foreach($categories as $cat): ?>
-            <a href="index.php?role=user&controller=product&action=search&category_id=<?php echo (int) $cat['id']; ?>" class="cat-chip">
-                <i class="<?php echo e($cat['icon'] ?: 'fas fa-tag'); ?>"></i><?php echo e($cat['name']); ?>
-            </a>
-        <?php endforeach; endif; ?>
+    <div class="container category-nav">
+        <?php if(!empty($homeCategories)): ?>
+            <div class="dropdown category-menu-shell">
+                <button class="category-trigger dropdown-toggle" type="button" data-bs-toggle="dropdown" data-bs-display="static" data-bs-auto-close="outside" aria-expanded="false">
+                    <i class="fas fa-bars"></i><span>Danh mục sản phẩm</span>
+                </button>
+                <div class="dropdown-menu category-mega">
+                    <div class="category-mega-top">
+                        <div class="category-mega-title">
+                            <i class="fas fa-bars"></i><span>Danh mục sản phẩm</span>
+                        </div>
+                        <button class="category-close" type="button" data-category-close>
+                            <span>Đóng</span><i class="fas fa-xmark"></i>
+                        </button>
+                    </div>
+
+                    <div class="category-mega-grid">
+                        <?php foreach($categoryMegaColumns as $column): ?>
+                            <div>
+                                <?php foreach($column as $cat): ?>
+                                    <a class="category-mega-item" href="index.php?role=user&controller=product&action=search&category_id=<?php echo (int) $cat['id']; ?>">
+                                        <span class="category-mega-icon"><i class="<?php echo e($cat['icon'] ?: 'fas fa-tag'); ?>"></i></span>
+                                        <span class="category-mega-name"><?php echo e($cat['name']); ?></span>
+                                    </a>
+                                <?php endforeach; ?>
+                            </div>
+                        <?php endforeach; ?>
+                    </div>
+
+                    <div class="category-mega-foot">
+                        <span><?php echo count($homeCategories); ?> danh mục đang được hỗ trợ</span>
+                        <a href="index.php?role=user&controller=product&action=search">Xem toàn bộ sản phẩm <i class="fas fa-angle-right ms-1"></i></a>
+                    </div>
+                </div>
+            </div>
+        <?php endif; ?>
+
+        <div class="category-divider"></div>
+
+        <div class="category-strip">
+            <?php foreach($quickCategories as $cat): ?>
+                <a href="index.php?role=user&controller=product&action=search&category_id=<?php echo (int) $cat['id']; ?>" class="cat-link">
+                    <?php echo e($cat['name']); ?>
+                </a>
+            <?php endforeach; ?>
+        </div>
     </div>
 </nav>
 
-<section class="market-band">
-    <div class="container market-layout">
-        <div class="deal-stage">
-            <div>
-                <h1>Săn giá tốt từ Tiki, Shopee, Lazada</h1>
-                <p>Theo dõi biến động giá, so sánh nhanh giữa các sàn và mở sản phẩm đang có mức giá tốt nhất.</p>
-                <div class="deal-actions">
-                    <a href="#topDeals" class="deal-button"><i class="fas fa-bolt"></i>Deal nổi bật</a>
-                    <a href="index.php?role=user&controller=product&action=search" class="deal-button light"><i class="fas fa-list"></i>Xem sản phẩm</a>
+<section class="promo-band">
+    <div class="container promo-layout">
+        <div id="homePromoCarousel" class="carousel slide promo-carousel" data-bs-ride="carousel" data-bs-interval="4500">
+            <div class="carousel-indicators">
+                <button type="button" data-bs-target="#homePromoCarousel" data-bs-slide-to="0" class="active" aria-current="true" aria-label="Khuyến mãi 1"></button>
+                <button type="button" data-bs-target="#homePromoCarousel" data-bs-slide-to="1" aria-label="Khuyến mãi 2"></button>
+                <button type="button" data-bs-target="#homePromoCarousel" data-bs-slide-to="2" aria-label="Khuyến mãi 3"></button>
+            </div>
+
+            <div class="carousel-inner">
+                <div class="carousel-item active">
+                    <div class="promo-slide">
+                        <div>
+                            <div class="promo-kicker"><i class="fas fa-bolt"></i>Flash deal đa sàn</div>
+                            <h1>Săn giá tốt hơn mỗi ngày</h1>
+                            <p>So sánh giá từ Tiki, Shopee và Lazada, theo dõi biến động giá trước khi quyết định mua.</p>
+                            <div class="promo-actions">
+                                <a href="#flashSale" class="promo-button"><i class="fas fa-fire"></i>Xem flash sale</a>
+                                <a href="index.php?role=user&controller=product&action=search" class="promo-button dark"><i class="fas fa-magnifying-glass"></i>Tìm sản phẩm</a>
+                            </div>
+                        </div>
+                        <div class="promo-products">
+                            <?php foreach(array_slice($bannerProducts, 0, 2) as $p): ?>
+                                <a class="promo-mini-product" href="index.php?role=user&controller=product&action=detail&id=<?php echo (int) ($p['id'] ?? 0); ?>">
+                                    <?php $thumb = trim((string) ($p['thumbnail_url'] ?? '')); ?>
+                                    <?php if($thumb !== ''): ?>
+                                        <img src="<?php echo e($thumb); ?>" alt="<?php echo e($p['name'] ?? 'Sản phẩm'); ?>">
+                                    <?php else: ?>
+                                        <span class="promo-mini-icon"><i class="fas fa-box-open"></i></span>
+                                    <?php endif; ?>
+                                    <span>
+                                        <strong><?php echo e($p['name'] ?? 'Sản phẩm'); ?></strong>
+                                        <span><?php echo price_label($p['min_price'] ?? 0); ?></span>
+                                    </span>
+                                </a>
+                            <?php endforeach; ?>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="carousel-item">
+                    <div class="promo-slide blue">
+                        <div>
+                            <div class="promo-kicker"><i class="fas fa-chart-line"></i>Phân tích biến động</div>
+                            <h1>Biết lúc nào nên mua</h1>
+                            <p>Hệ thống dùng lịch sử giá để gợi ý sản phẩm đang ở vùng giá đáng cân nhắc.</p>
+                            <div class="promo-actions">
+                                <a href="#todaySuggestions" class="promo-button"><i class="fas fa-lightbulb"></i>Gợi ý hôm nay</a>
+                            </div>
+                        </div>
+                        <div class="promo-products">
+                            <?php foreach(array_slice($todaySuggestionProducts, 0, 2) as $p): ?>
+                                <a class="promo-mini-product" href="index.php?role=user&controller=product&action=detail&id=<?php echo (int) ($p['id'] ?? 0); ?>">
+                                    <?php $thumb = trim((string) ($p['thumbnail_url'] ?? '')); ?>
+                                    <?php if($thumb !== ''): ?>
+                                        <img src="<?php echo e($thumb); ?>" alt="<?php echo e($p['name'] ?? 'Sản phẩm'); ?>">
+                                    <?php else: ?>
+                                        <span class="promo-mini-icon"><i class="fas fa-box-open"></i></span>
+                                    <?php endif; ?>
+                                    <span>
+                                        <strong><?php echo e($p['name'] ?? 'Sản phẩm'); ?></strong>
+                                        <span><?php echo price_label($p['min_price'] ?? 0); ?></span>
+                                    </span>
+                                </a>
+                            <?php endforeach; ?>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="carousel-item">
+                    <div class="promo-slide dark">
+                        <div>
+                            <div class="promo-kicker"><i class="fas fa-bell"></i>Cảnh báo giá</div>
+                            <h1>Không bỏ lỡ lúc giá giảm</h1>
+                            <p>Lưu mức giá mong muốn và nhận thông báo khi sản phẩm chạm ngưỡng bạn đặt.</p>
+                            <div class="promo-actions">
+                                <a href="index.php?role=user&controller=product&action=myAlerts" class="promo-button"><i class="fas fa-bell"></i>Dashboard của tôi</a>
+                            </div>
+                        </div>
+                        <div class="promo-products">
+                            <?php foreach(array_slice($bannerProducts, 1, 2) as $p): ?>
+                                <a class="promo-mini-product" href="index.php?role=user&controller=product&action=detail&id=<?php echo (int) ($p['id'] ?? 0); ?>">
+                                    <?php $thumb = trim((string) ($p['thumbnail_url'] ?? '')); ?>
+                                    <?php if($thumb !== ''): ?>
+                                        <img src="<?php echo e($thumb); ?>" alt="<?php echo e($p['name'] ?? 'Sản phẩm'); ?>">
+                                    <?php else: ?>
+                                        <span class="promo-mini-icon"><i class="fas fa-box-open"></i></span>
+                                    <?php endif; ?>
+                                    <span>
+                                        <strong><?php echo e($p['name'] ?? 'Sản phẩm'); ?></strong>
+                                        <span><?php echo price_label($p['min_price'] ?? 0); ?></span>
+                                    </span>
+                                </a>
+                            <?php endforeach; ?>
+                        </div>
+                    </div>
                 </div>
             </div>
-            <div class="deal-visual"><i class="fas fa-mobile-screen-button"></i></div>
+
+            <button class="carousel-control-prev" type="button" data-bs-target="#homePromoCarousel" data-bs-slide="prev">
+                <span class="carousel-control-prev-icon" aria-hidden="true"></span>
+                <span class="visually-hidden">Trước</span>
+            </button>
+            <button class="carousel-control-next" type="button" data-bs-target="#homePromoCarousel" data-bs-slide="next">
+                <span class="carousel-control-next-icon" aria-hidden="true"></span>
+                <span class="visually-hidden">Sau</span>
+            </button>
         </div>
 
-        <div class="side-panel">
-            <a href="index.php?role=user&controller=product&action=search&platform_filter=Tiki" class="side-tile">
-                <span><strong>Giá từ Tiki</strong><span>Ảnh và thông tin gốc rõ ràng</span></span>
-                <i class="fas fa-store"></i>
+        <div class="promo-side">
+            <a href="index.php?role=user&controller=product&action=search&sort_by=price_asc" class="promo-side-card">
+                <span><strong>Giá tốt nổi bật</strong><span>Sắp xếp sản phẩm theo mức giá dễ mua nhất</span></span>
+                <i class="fas fa-tags"></i>
             </a>
-            <a href="index.php?role=user&controller=product&action=myAlerts" class="side-tile">
-                <span><strong>Cảnh báo giá</strong><span>Lưu mức giá mong muốn</span></span>
-                <i class="fas fa-bell"></i>
+            <a href="index.php?role=user&controller=product&action=search&platform_filter=Tiki" class="promo-side-card">
+                <span><strong>Thông tin từ Tiki</strong><span>Ưu tiên ảnh và mô tả rõ ràng cho sản phẩm</span></span>
+                <i class="fas fa-store"></i>
             </a>
         </div>
     </div>
@@ -805,18 +1965,35 @@ $userLabel = $_SESSION['user_email'] ?? 'Thành viên';
 
 <main class="section-wrap">
     <div class="container">
+        <div id="flashSale" class="flash-sale-bar">
+            <div class="flash-sale-title"><i class="fas fa-bolt"></i>Flash sale hôm nay</div>
+            <div class="flash-countdown" aria-label="Thời gian còn lại">
+                <span id="flashHours">00</span>
+                <span id="flashMinutes">00</span>
+                <span id="flashSeconds">00</span>
+            </div>
+        </div>
+
         <?php if(!empty($top_deals)): ?>
-            <section id="topDeals" class="mb-5">
+            <div class="flash-product-grid">
+                <?php foreach(array_slice($top_deals, 0, 4) as $p): ?>
+                    <?php flash_sale_card($p); ?>
+                <?php endforeach; ?>
+            </div>
+        <?php endif; ?>
+
+        <?php if(!empty($todaySuggestionProducts)): ?>
+            <section id="todaySuggestions" class="mb-5">
                 <div class="section-header">
                     <div>
-                        <div class="section-kicker">Đáng chú ý</div>
-                        <h2 class="section-title">Deal tốt nhất hệ thống</h2>
+                        <div class="section-kicker">Dựa trên biến động giá</div>
+                        <h2 class="section-title">Sản phẩm gợi ý hôm nay</h2>
                     </div>
-                    <a class="section-link" href="index.php?role=user&controller=product&action=search&sort_by=price_asc">Xem thêm <i class="fas fa-angle-right ms-1"></i></a>
+                    <a class="section-link" href="index.php?role=user&controller=product&action=search">Xem thêm <i class="fas fa-angle-right ms-1"></i></a>
                 </div>
-                <div class="product-grid">
-                    <?php foreach($top_deals as $p): ?>
-                        <?php product_card($p, 'deal'); ?>
+                <div class="insight-grid">
+                    <?php foreach($todaySuggestionProducts as $p): ?>
+                        <?php insight_product_card($p); ?>
                     <?php endforeach; ?>
                 </div>
             </section>
@@ -826,8 +2003,8 @@ $userLabel = $_SESSION['user_email'] ?? 'Thành viên';
             <section class="mb-5">
                 <div class="section-header">
                     <div>
-                        <div class="section-kicker">Nổi bật</div>
-                        <h2 class="section-title">Sản phẩm đang được cập nhật</h2>
+                        <div class="section-kicker">Được quan tâm</div>
+                        <h2 class="section-title">Sản phẩm nhiều người theo dõi</h2>
                     </div>
                     <a class="section-link" href="index.php?role=user&controller=product&action=search">Tất cả sản phẩm <i class="fas fa-angle-right ms-1"></i></a>
                 </div>
@@ -843,8 +2020,8 @@ $userLabel = $_SESSION['user_email'] ?? 'Thành viên';
             <section>
                 <div class="section-header">
                     <div>
-                        <div class="section-kicker">Mới nhất</div>
-                        <h2 class="section-title">Sản phẩm mới thêm</h2>
+                        <div class="section-kicker">Khám phá thêm</div>
+                        <h2 class="section-title">Có thể bạn quan tâm</h2>
                     </div>
                     <a class="section-link" href="index.php?role=user&controller=product&action=search&sort_by=newest">Xem thêm <i class="fas fa-angle-right ms-1"></i></a>
                 </div>
@@ -856,11 +2033,13 @@ $userLabel = $_SESSION['user_email'] ?? 'Thành viên';
             </section>
         <?php endif; ?>
 
-        <?php if(empty($top_deals) && empty($trending_products) && empty($new_products)): ?>
+        <?php if(empty($top_deals) && empty($todaySuggestionProducts) && empty($trending_products) && empty($new_products)): ?>
             <div class="empty-state">Chưa có sản phẩm để hiển thị.</div>
         <?php endif; ?>
     </div>
 </main>
+
+<?php require __DIR__ . '/partials/footer.php'; ?>
 
 <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
 <script>
@@ -923,6 +2102,44 @@ document.addEventListener('click', function(event) {
     if (!searchInput.contains(event.target) && !suggestionsBox.contains(event.target)) {
         suggestionsBox.style.display = 'none';
     }
+});
+
+function updateFlashCountdown() {
+    const hoursEl = document.getElementById('flashHours');
+    const minutesEl = document.getElementById('flashMinutes');
+    const secondsEl = document.getElementById('flashSeconds');
+
+    if (!hoursEl || !minutesEl || !secondsEl) {
+        return;
+    }
+
+    const now = new Date();
+    const end = new Date();
+    end.setHours(23, 59, 59, 999);
+
+    const remaining = Math.max(0, end.getTime() - now.getTime());
+    const totalSeconds = Math.floor(remaining / 1000);
+    const hours = Math.floor(totalSeconds / 3600);
+    const minutes = Math.floor((totalSeconds % 3600) / 60);
+    const seconds = totalSeconds % 60;
+
+    hoursEl.textContent = String(hours).padStart(2, '0');
+    minutesEl.textContent = String(minutes).padStart(2, '0');
+    secondsEl.textContent = String(seconds).padStart(2, '0');
+}
+
+updateFlashCountdown();
+setInterval(updateFlashCountdown, 1000);
+
+document.querySelectorAll('[data-category-close]').forEach(function(button) {
+    button.addEventListener('click', function() {
+        const dropdown = button.closest('.dropdown');
+        const toggle = dropdown ? dropdown.querySelector('[data-bs-toggle="dropdown"]') : null;
+
+        if (toggle && window.bootstrap) {
+            bootstrap.Dropdown.getOrCreateInstance(toggle).hide();
+        }
+    });
 });
 </script>
 </body>

@@ -24,6 +24,24 @@ $avgPrice = !empty($priceStats['avg_price']) ? (int) round($priceStats['avg_pric
 $diffAvg = ($avgPrice > 0 && $cheapest > 0) ? (($avgPrice - $cheapest) / $avgPrice) * 100 : 0;
 $thumbnail = trim((string) ($product['thumbnail_url'] ?? ''));
 $productSpecs = $productSpecs ?? [];
+$priceAnalysis = $priceAnalysis ?? [];
+$recommendation = $priceAnalysis['recommendation'] ?? ['code' => 'insufficient', 'label' => 'Chưa đủ dữ liệu', 'message' => '', 'reason' => ''];
+$trend = $priceAnalysis['trend'] ?? ['code' => 'insufficient', 'label' => 'Chưa đủ dữ liệu', 'message' => '', 'change_percent' => 0];
+$confidence = $priceAnalysis['confidence'] ?? ['code' => 'none', 'label' => 'Chưa có dữ liệu', 'message' => ''];
+
+function analysis_tone($code) {
+    return [
+        'buy' => 'good',
+        'consider' => 'neutral',
+        'wait' => 'warn',
+        'decreasing' => 'good',
+        'stable' => 'neutral',
+        'increasing' => 'warn',
+        'good' => 'good',
+        'medium' => 'neutral',
+        'low' => 'warn',
+    ][$code] ?? 'muted';
+}
 ?>
 <!DOCTYPE html>
 <html lang="vi">
@@ -93,18 +111,69 @@ $productSpecs = $productSpecs ?? [];
         .primary-btn { height:48px; border:0; border-radius:8px; background:#111827; color:#fff; font-weight:900; width:100%; }
         .primary-btn:hover { background:#1f2937; color:#fff; }
         .secondary-link { height:44px; display:flex; align-items:center; justify-content:center; border-radius:8px; text-decoration:none; background:#fff5f5; color:var(--accent); border:1px solid #fee4e2; font-weight:900; }
-        .chart-wrap { height:340px; }
+        .chart-wrap {
+            position: relative;
+            height: 390px;
+            border: 1px solid var(--line);
+            border-radius: 8px;
+            padding: 18px 14px 8px;
+            background:
+                linear-gradient(180deg, #ffffff 0%, #f8fafc 100%);
+        }
+
+        .chart-wrap canvas {
+            width: 100% !important;
+            height: 100% !important;
+        }
+
+        .chart-empty {
+            position: absolute;
+            inset: 18px;
+            display: grid;
+            place-items: center;
+            border-radius: 8px;
+            background: rgba(248,250,252,.92);
+            color: var(--muted);
+            text-align: center;
+            font-weight: 800;
+            z-index: 3;
+        }
+
+        .chart-empty i {
+            display: block;
+            margin-bottom: 10px;
+            color: #94a3b8;
+            font-size: 2rem;
+        }
+
         .stats-row { display:grid; grid-template-columns:repeat(3,1fr); gap:10px; margin-bottom:16px; }
-        .stat-pill { border:1px solid var(--line); border-radius:8px; padding:12px; }
+        .stat-pill { border:1px solid var(--line); border-radius:8px; padding:14px; background:#fff; }
         .stat-pill span { color:var(--muted); font-size:.78rem; font-weight:900; display:block; }
-        .stat-pill strong { font-size:1.05rem; font-weight:900; }
+        .stat-pill strong { font-size:1.12rem; font-weight:950; }
+        .analysis-layout { display:grid; grid-template-columns:1fr 1fr; gap:14px; }
+        .analysis-callout { border:1px solid var(--line); border-radius:8px; padding:16px; background:#f8fafc; }
+        .analysis-callout.good { border-color:#bbf7d0; background:#f0fdf4; }
+        .analysis-callout.warn { border-color:#fed7aa; background:#fff7ed; }
+        .analysis-callout.neutral { border-color:#bfdbfe; background:#eff6ff; }
+        .analysis-callout.muted { border-color:var(--line); background:#f8fafc; }
+        .analysis-label { display:inline-flex; align-items:center; gap:7px; min-height:28px; padding:0 10px; border-radius:999px; font-size:.78rem; font-weight:900; background:#fff; border:1px solid rgba(16,24,40,.08); margin-bottom:10px; }
+        .analysis-callout.good .analysis-label { color:#166534; }
+        .analysis-callout.warn .analysis-label { color:#9a3412; }
+        .analysis-callout.neutral .analysis-label { color:#1d4ed8; }
+        .analysis-callout h3 { margin:0 0 8px; font-size:1.05rem; font-weight:950; }
+        .analysis-callout p { margin:0; color:var(--muted); font-weight:700; }
+        .analysis-metrics { display:grid; grid-template-columns:repeat(4,1fr); gap:10px; margin-top:14px; }
+        .analysis-metric { border:1px solid var(--line); border-radius:8px; padding:12px; background:#fff; }
+        .analysis-metric span { display:block; color:var(--muted); font-size:.76rem; font-weight:900; margin-bottom:4px; }
+        .analysis-metric strong { font-size:1rem; font-weight:950; }
         .related-grid { display:grid; grid-template-columns:repeat(4,minmax(0,1fr)); gap:14px; }
         .related-card { background:#fff; border:1px solid var(--line); border-radius:8px; padding:12px; text-decoration:none; display:block; height:100%; }
         .related-img { height:135px; border-radius:8px; background:#f8fafc; display:grid; place-items:center; overflow:hidden; margin-bottom:10px; }
         .related-img img { width:100%; height:100%; object-fit:contain; padding:8px; }
         .related-name { min-height:40px; font-weight:800; display:-webkit-box; -webkit-line-clamp:2; -webkit-box-orient:vertical; overflow:hidden; }
         @media (max-width:1100px){ .product-hero,.content-layout{grid-template-columns:1fr;} .alert-card{position:static;} .related-grid{grid-template-columns:repeat(2,1fr);} }
-        @media (max-width:640px){ .seller-row,.spec-row{grid-template-columns:1fr;} .metric-grid,.stats-row{grid-template-columns:1fr;} .related-grid{grid-template-columns:1fr;} .header-inner{flex-direction:column; padding:14px 0;} }
+        @media (max-width:820px){ .analysis-layout,.analysis-metrics{grid-template-columns:1fr 1fr;} }
+        @media (max-width:640px){ .seller-row,.spec-row{grid-template-columns:1fr;} .metric-grid,.stats-row,.analysis-layout,.analysis-metrics{grid-template-columns:1fr;} .related-grid{grid-template-columns:1fr;} .header-inner{flex-direction:column; padding:14px 0;} }
     </style>
 </head>
 <body>
@@ -185,6 +254,74 @@ $productSpecs = $productSpecs ?? [];
                 <?php endif; ?>
             </div>
 
+            <div class="section-card">
+                <div class="section-head">
+                    <h2 class="section-title"><i class="fas fa-chart-simple text-primary me-2"></i>Phân tích giá & gợi ý mua</h2>
+                    <span class="text-muted small fw-bold">Dựa trên <?php echo e_detail($priceAnalysis['period_label'] ?? '30 ngày gần nhất'); ?></span>
+                </div>
+
+                <div class="analysis-layout">
+                    <div class="analysis-callout <?php echo e_detail(analysis_tone($recommendation['code'] ?? 'insufficient')); ?>">
+                        <div class="analysis-label">
+                            <i class="fas fa-lightbulb"></i><?php echo e_detail($recommendation['label'] ?? 'Chưa đủ dữ liệu'); ?>
+                        </div>
+                        <h3>Gợi ý thời điểm mua</h3>
+                        <p><?php echo e_detail($recommendation['message'] ?? 'Hệ thống cần thêm dữ liệu lịch sử trước khi gợi ý.'); ?></p>
+                        <?php if (!empty($recommendation['reason'])): ?>
+                            <p class="mt-2 small"><?php echo e_detail($recommendation['reason']); ?></p>
+                        <?php endif; ?>
+                    </div>
+
+                    <div class="analysis-callout <?php echo e_detail(analysis_tone($trend['code'] ?? 'insufficient')); ?>">
+                        <div class="analysis-label">
+                            <i class="fas fa-arrow-trend-up"></i><?php echo e_detail($trend['label'] ?? 'Chưa đủ dữ liệu'); ?>
+                        </div>
+                        <h3>Xu hướng giá cơ bản</h3>
+                        <p><?php echo e_detail($trend['message'] ?? 'Cần thêm lịch sử giá để xác định xu hướng.'); ?></p>
+                        <?php if (($trend['code'] ?? '') !== 'insufficient'): ?>
+                            <p class="mt-2 small">Mức thay đổi trong kỳ: <?php echo e_detail(($trend['change_percent'] ?? 0) . '%'); ?></p>
+                        <?php endif; ?>
+                    </div>
+                </div>
+
+                <div class="analysis-metrics">
+                    <div class="analysis-metric">
+                        <span>Thấp nhất kỳ này</span>
+                        <strong class="text-danger"><?php echo money_detail($priceAnalysis['min_price'] ?? 0); ?></strong>
+                    </div>
+                    <div class="analysis-metric">
+                        <span>Cao nhất kỳ này</span>
+                        <strong><?php echo money_detail($priceAnalysis['max_price'] ?? 0); ?></strong>
+                    </div>
+                    <div class="analysis-metric">
+                        <span>So với trung bình</span>
+                        <strong><?php echo ((int) ($priceAnalysis['data_points'] ?? 0) >= 3) ? e_detail(($priceAnalysis['current_vs_avg_percent'] ?? 0) . '%') : 'Chưa đủ'; ?></strong>
+                    </div>
+                    <div class="analysis-metric">
+                        <span>Biên độ dao động</span>
+                        <strong><?php echo ((int) ($priceAnalysis['data_points'] ?? 0) >= 3) ? e_detail(($priceAnalysis['volatility_percent'] ?? 0) . '%') : 'Chưa đủ'; ?></strong>
+                    </div>
+                    <div class="analysis-metric">
+                        <span>Độ tin cậy</span>
+                        <strong class="<?php echo e_detail(($confidence['code'] ?? '') === 'good' ? 'text-success' : ((($confidence['code'] ?? '') === 'low') ? 'text-warning' : 'text-primary')); ?>">
+                            <?php echo e_detail($confidence['label'] ?? 'Chưa có dữ liệu'); ?>
+                        </strong>
+                    </div>
+                    <div class="analysis-metric">
+                        <span>Lần tăng giá</span>
+                        <strong><?php echo (int) ($priceAnalysis['up_count'] ?? 0); ?></strong>
+                    </div>
+                    <div class="analysis-metric">
+                        <span>Lần giảm giá</span>
+                        <strong><?php echo (int) ($priceAnalysis['down_count'] ?? 0); ?></strong>
+                    </div>
+                    <div class="analysis-metric">
+                        <span>Sàn tốt nhất</span>
+                        <strong><?php echo e_detail($priceAnalysis['best_platform'] ?? 'Chưa có'); ?></strong>
+                    </div>
+                </div>
+            </div>
+
             <?php if(!empty($productSpecs)): ?>
                 <div class="section-card">
                     <div class="section-head">
@@ -213,17 +350,25 @@ $productSpecs = $productSpecs ?? [];
                 <div class="section-head">
                     <h2 class="section-title"><i class="fas fa-chart-line text-success me-2"></i>Lịch sử giá</h2>
                     <div class="btn-group btn-group-sm">
-                        <button type="button" class="btn btn-outline-secondary active" onclick="updateChartData(7, this)">7 ngày</button>
-                        <button type="button" class="btn btn-outline-secondary" onclick="updateChartData(30, this)">30 ngày</button>
+                        <button type="button" class="btn btn-outline-secondary" onclick="updateChartData(7, this)">7 ngày</button>
+                        <button type="button" class="btn btn-outline-secondary active" onclick="updateChartData(30, this)">30 ngày</button>
                         <button type="button" class="btn btn-outline-secondary" onclick="updateChartData(null, this)">Tất cả</button>
                     </div>
                 </div>
                 <div class="stats-row">
-                    <div class="stat-pill"><span>Cao nhất</span><strong><?php echo money_detail($priceStats['max_price'] ?? 0); ?></strong></div>
-                    <div class="stat-pill"><span>Thấp nhất</span><strong class="text-danger"><?php echo money_detail($priceStats['min_price'] ?? 0); ?></strong></div>
-                    <div class="stat-pill"><span>Trung bình</span><strong class="text-primary"><?php echo money_detail($priceStats['avg_price'] ?? 0); ?></strong></div>
+                    <div class="stat-pill"><span>Cao nhất</span><strong id="chartMaxPrice"><?php echo money_detail($priceStats['max_price'] ?? 0); ?></strong></div>
+                    <div class="stat-pill"><span>Thấp nhất</span><strong id="chartMinPrice" class="text-danger"><?php echo money_detail($priceStats['min_price'] ?? 0); ?></strong></div>
+                    <div class="stat-pill"><span>Trung bình</span><strong id="chartAvgPrice" class="text-primary"><?php echo money_detail($priceStats['avg_price'] ?? 0); ?></strong></div>
                 </div>
-                <div class="chart-wrap"><canvas id="priceHistoryChart"></canvas></div>
+                <div class="chart-wrap">
+                    <canvas id="priceHistoryChart"></canvas>
+                    <div id="priceChartEmpty" class="chart-empty d-none">
+                        <div>
+                            <i class="fas fa-chart-line"></i>
+                            Chưa đủ dữ liệu lịch sử giá trong khoảng đã chọn.
+                        </div>
+                    </div>
+                </div>
             </div>
         </div>
 
@@ -286,6 +431,8 @@ $productSpecs = $productSpecs ?? [];
     <?php endif; ?>
 </main>
 
+<?php require __DIR__ . '/partials/footer.php'; ?>
+
 <script>
 const rawData = <?php echo json_encode($priceHistory, JSON_UNESCAPED_UNICODE); ?> || [];
 const dailyData = {};
@@ -294,54 +441,217 @@ rawData.sort((a, b) => new Date(a.scraped_at) - new Date(b.scraped_at));
 rawData.forEach(item => {
     const dateOnly = String(item.scraped_at).split(' ')[0];
     if (!dailyData[dateOnly]) dailyData[dateOnly] = { Tiki: null, Shopee: null, Lazada: null };
-    dailyData[dateOnly][item.platform_name] = Number(item.price);
+    const price = Number(item.price || 0);
+    if (price > 0) {
+        dailyData[dateOnly][item.platform_name] = price;
+    }
 });
 
 const rawLabels = Object.keys(dailyData);
-const displayLabels = rawLabels.map(dateStr => dateStr.split('-').reverse().slice(0, 2).join('/'));
-const tikiData = rawLabels.map(date => dailyData[date].Tiki);
-const shopeeData = rawLabels.map(date => dailyData[date].Shopee);
-const lazadaData = rawLabels.map(date => dailyData[date].Lazada);
 let priceChart;
 
-function initChart(days = null) {
-    let labels = displayLabels;
-    let d1 = tikiData;
-    let d2 = shopeeData;
-    let d3 = lazadaData;
+const platformStyles = {
+    Tiki: { color: '#189eff', soft: 'rgba(24,158,255,.08)' },
+    Shopee: { color: '#ee4d2d', soft: 'rgba(238,77,45,.08)' },
+    Lazada: { color: '#152b91', soft: 'rgba(21,43,145,.08)' }
+};
 
-    if (days) {
-        labels = labels.slice(-days);
-        d1 = d1.slice(-days);
-        d2 = d2.slice(-days);
-        d3 = d3.slice(-days);
+function parseDateKey(dateKey) {
+    const parts = String(dateKey).split('-').map(Number);
+    return new Date(parts[0], parts[1] - 1, parts[2]);
+}
+
+function toDateKey(date) {
+    const year = date.getFullYear();
+    const month = String(date.getMonth() + 1).padStart(2, '0');
+    const day = String(date.getDate()).padStart(2, '0');
+    return `${year}-${month}-${day}`;
+}
+
+function formatDateLabel(dateKey) {
+    const parts = String(dateKey).split('-');
+    return `${parts[2]}/${parts[1]}`;
+}
+
+function formatChartMoney(value) {
+    return Number(value || 0).toLocaleString('vi-VN') + ' đ';
+}
+
+function getVisibleDateKeys(days = null) {
+    if (!days || rawLabels.length === 0) {
+        if (rawLabels.length !== 1) return rawLabels;
+
+        const nextDate = parseDateKey(rawLabels[0]);
+        nextDate.setDate(nextDate.getDate() + 1);
+        return [rawLabels[0], toDateKey(nextDate)];
     }
 
+    const latestDate = parseDateKey(rawLabels[rawLabels.length - 1]);
+    const fromDate = new Date(latestDate);
+    fromDate.setDate(latestDate.getDate() - Number(days) + 1);
+
+    const visibleKeys = rawLabels.filter(dateKey => parseDateKey(dateKey) >= fromDate);
+    const boundaryKeys = [toDateKey(fromDate), ...visibleKeys, toDateKey(latestDate)];
+
+    return [...new Set(boundaryKeys)].sort((a, b) => parseDateKey(a) - parseDateKey(b));
+}
+
+function buildAlignedSeries(dateKeys, platform) {
+    const actualValues = dateKeys.map(dateKey => dailyData[dateKey]?.[platform] ?? null);
+    const validIndexes = actualValues
+        .map((value, index) => Number(value) > 0 ? index : -1)
+        .filter(index => index >= 0);
+
+    if (!validIndexes.length) {
+        return {
+            data: dateKeys.map(() => null),
+            actualData: [],
+            actualDateKeys: []
+        };
+    }
+
+    const firstValue = actualValues[validIndexes[0]];
+    let lastKnown = firstValue;
+    const alignedData = actualValues.map(value => {
+        if (Number(value) > 0) {
+            lastKnown = value;
+            return value;
+        }
+        return lastKnown;
+    });
+
+    return {
+        data: alignedData,
+        actualData: actualValues.filter(value => Number(value) > 0),
+        actualDateKeys: validIndexes.map(index => dateKeys[index])
+    };
+}
+
+function visiblePricesFromDatasets(datasets) {
+    return datasets.flatMap(dataset => dataset._actualData || []).filter(value => Number(value) > 0);
+}
+
+function updateChartStats(prices) {
+    const maxEl = document.getElementById('chartMaxPrice');
+    const minEl = document.getElementById('chartMinPrice');
+    const avgEl = document.getElementById('chartAvgPrice');
+
+    if (!maxEl || !minEl || !avgEl) return;
+
+    if (!prices.length) {
+        maxEl.textContent = 'Đang cập nhật';
+        minEl.textContent = 'Đang cập nhật';
+        avgEl.textContent = 'Đang cập nhật';
+        return;
+    }
+
+    const maxPrice = Math.max(...prices);
+    const minPrice = Math.min(...prices);
+    const avgPrice = Math.round(prices.reduce((sum, value) => sum + value, 0) / prices.length);
+
+    maxEl.textContent = formatChartMoney(maxPrice);
+    minEl.textContent = formatChartMoney(minPrice);
+    avgEl.textContent = formatChartMoney(avgPrice);
+}
+
+function initChart(days = null) {
     const ctx = document.getElementById('priceHistoryChart');
+    const emptyState = document.getElementById('priceChartEmpty');
     if (!ctx) return;
     if (priceChart) priceChart.destroy();
+
+    const dateKeys = getVisibleDateKeys(days);
+    const labels = dateKeys.map(formatDateLabel);
+    const datasets = Object.keys(platformStyles).map(platform => {
+        const series = buildAlignedSeries(dateKeys, platform);
+        return {
+            label: platform,
+            data: series.data,
+            _actualData: series.actualData,
+            _dateKeys: dateKeys,
+            _actualDateKeys: new Set(series.actualDateKeys),
+            borderColor: platformStyles[platform].color,
+            backgroundColor: platformStyles[platform].soft,
+            pointBackgroundColor: '#fff',
+            pointBorderColor: platformStyles[platform].color,
+            pointBorderWidth: 2,
+            pointRadius: context => {
+                const dateKey = context.dataset._dateKeys?.[context.dataIndex];
+                return context.dataset._actualDateKeys?.has(dateKey) ? 4 : 0;
+            },
+            pointHoverRadius: 6,
+            fill: false,
+            tension: .28,
+            borderWidth: 3,
+            spanGaps: true
+        };
+    });
+    const visiblePrices = visiblePricesFromDatasets(datasets);
+    updateChartStats(visiblePrices);
+
+    if (emptyState) {
+        emptyState.classList.toggle('d-none', visiblePrices.length > 0);
+    }
+
+    const minPrice = visiblePrices.length ? Math.min(...visiblePrices) : 0;
+    const maxPrice = visiblePrices.length ? Math.max(...visiblePrices) : 0;
+    const padding = Math.max(100000, Math.round((maxPrice - minPrice) * 0.12));
 
     priceChart = new Chart(ctx, {
         type: 'line',
         data: {
             labels,
-            datasets: [
-                { label: 'Tiki', data: d1, borderColor: '#189eff', backgroundColor: 'rgba(24,158,255,.08)', fill: true, tension: .35, borderWidth: 3 },
-                { label: 'Shopee', data: d2, borderColor: '#ee4d2d', backgroundColor: 'rgba(238,77,45,.08)', fill: true, tension: .35, borderWidth: 3 },
-                { label: 'Lazada', data: d3, borderColor: '#0b1f8a', backgroundColor: 'rgba(11,31,138,.08)', fill: true, tension: .35, borderWidth: 3 }
-            ]
+            datasets
         },
         options: {
             responsive: true,
             maintainAspectRatio: false,
-            interaction: { mode: 'index', intersect: false },
+            interaction: { mode: 'nearest', intersect: false },
+            layout: { padding: { top: 8, right: 12, bottom: 0, left: 6 } },
             plugins: {
-                legend: { position: 'bottom', labels: { usePointStyle: true, boxWidth: 8 } },
-                tooltip: { callbacks: { label: ctx => ` ${ctx.dataset.label}: ${Number(ctx.parsed.y || 0).toLocaleString('vi-VN')} đ` } }
+                legend: {
+                    position: 'bottom',
+                    labels: {
+                        usePointStyle: true,
+                        boxWidth: 8,
+                        boxHeight: 8,
+                        padding: 18,
+                        color: '#344054',
+                        font: { weight: '700' }
+                    }
+                },
+                tooltip: {
+                    backgroundColor: '#111827',
+                    titleColor: '#fff',
+                    bodyColor: '#fff',
+                    padding: 12,
+                    displayColors: true,
+                    callbacks: {
+                        label: context => {
+                            if (!context.parsed.y) return null;
+                            const dateKey = context.dataset._dateKeys?.[context.dataIndex];
+                            const suffix = context.dataset._actualDateKeys?.has(dateKey) ? '' : ' (giữ theo giá gần nhất)';
+                            return ` ${context.dataset.label}: ${formatChartMoney(context.parsed.y)}${suffix}`;
+                        }
+                    }
+                }
             },
             scales: {
-                x: { grid: { display: false } },
-                y: { ticks: { callback: value => Number(value).toLocaleString('vi-VN') + ' đ' } }
+                x: {
+                    grid: { display: false },
+                    ticks: { color: '#667085', maxRotation: 0, autoSkipPadding: 18 }
+                },
+                y: {
+                    min: visiblePrices.length ? Math.max(0, minPrice - padding) : undefined,
+                    max: visiblePrices.length ? maxPrice + padding : undefined,
+                    border: { display: false },
+                    grid: { color: '#edf2f7' },
+                    ticks: {
+                        color: '#667085',
+                        padding: 8,
+                        callback: value => formatChartMoney(value)
+                    }
+                }
             }
         }
     });
@@ -353,7 +663,7 @@ function updateChartData(days, button) {
     initChart(days);
 }
 
-initChart(7);
+initChart(30);
 
 const cheapestPrice = <?php echo (int) $cheapest; ?>;
 const priceInput = document.getElementById('targetPriceInput');

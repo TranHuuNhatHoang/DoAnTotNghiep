@@ -30,6 +30,16 @@ class ProductController {
         return number_format((int) $value, 0, ',', '.') . ' đ';
     }
 
+    private function readPriceFilter($key) {
+        $raw = trim((string) ($_GET[$key] ?? ''));
+        if ($raw === '') {
+            return null;
+        }
+
+        $digits = preg_replace('/\D+/', '', $raw);
+        return $digits === '' ? null : max(0, (int) $digits);
+    }
+
     public function index() {
         // Lấy danh mục cho Mega Menu
         require_once 'models/CategoryModel.php';
@@ -40,6 +50,7 @@ class ProductController {
         $trending_products = $this->productModel->getTrendingProducts();
         $new_products = $this->productModel->getNewProducts();
         $top_deals = $this->productModel->getTopDeals();
+        $recommended_buy_products = $this->productModel->getRecommendedBuyProducts(4);
         
         // --- BỔ SUNG LOGIC LẤY THÔNG BÁO CHO QUẢ CHUÔNG ---
         $notifications = [];
@@ -71,8 +82,13 @@ class ProductController {
         if (!in_array($platform, ['Tiki', 'Shopee', 'Lazada'], true)) {
             $platform = null;
         }
-        $minPrice = isset($_GET['min_price']) ? intval($_GET['min_price']) : null;
-        $maxPrice = isset($_GET['max_price']) ? intval($_GET['max_price']) : null;
+        $minPrice = $this->readPriceFilter('min_price');
+        $maxPrice = $this->readPriceFilter('max_price');
+        if ($minPrice !== null && $maxPrice !== null && $minPrice > $maxPrice) {
+            [$minPrice, $maxPrice] = [$maxPrice, $minPrice];
+            $_GET['min_price'] = (string) $minPrice;
+            $_GET['max_price'] = (string) $maxPrice;
+        }
         $sort = isset($_GET['sort_by']) ? $_GET['sort_by'] : 'newest';
 
         $products = $this->productModel->searchProductsAdvanced($keyword, $catId, $platform, $minPrice, $maxPrice, $sort);
@@ -110,6 +126,7 @@ class ProductController {
         
         // NÂNG CẤP: Lấy thống kê giá và Sản phẩm liên quan
         $priceStats = $this->productModel->getPriceStats($id);
+        $priceAnalysis = $this->productModel->getPriceAnalysis($id, 30);
         $relatedProducts = $this->productModel->getRelatedProducts($product['category_id'] ?? 0, $id);
 
         // NÂNG CẤP: Xử lý thông báo (Notification) chuẩn MVC (Không query trong View nữa)
@@ -307,6 +324,10 @@ class ProductController {
         require_once 'models/UserModel.php';
         $userModel = new UserModel($this->db);
         $alerts = $userModel->getUserAlerts($_SESSION['user_id']);
+        foreach ($alerts as &$alertItem) {
+            $alertItem['price_analysis'] = $this->productModel->getPriceAnalysis((int) ($alertItem['product_id'] ?? 0), 30);
+        }
+        unset($alertItem);
 
         require_once 'views/user/my_alerts.php';
     }

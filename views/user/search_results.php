@@ -99,7 +99,7 @@ if (!empty($searchPartialOnly)) {
             --blue: #0b5fff;
         }
 
-        body { background: var(--page); color: var(--ink); font-family: "Segoe UI", Arial, sans-serif; }
+        body { min-height: 100vh; background: var(--page); color: var(--ink); font-family: "Segoe UI", Arial, sans-serif; }
         a { color: inherit; }
 
         .header {
@@ -180,7 +180,9 @@ if (!empty($searchPartialOnly)) {
         .header-action:hover { color: #fff; background: rgba(255,255,255,0.14); }
 
         .result-hero {
-            background: #fff;
+            background:
+                radial-gradient(circle at 88% 12%, rgba(247,198,0,0.2), transparent 28%),
+                linear-gradient(135deg, #ffffff, #f8fafc);
             border-bottom: 1px solid var(--line);
         }
 
@@ -208,19 +210,23 @@ if (!empty($searchPartialOnly)) {
 
         .layout {
             display: grid;
-            grid-template-columns: 280px minmax(0, 1fr);
-            gap: 18px;
-            padding: 24px 0 48px;
+            grid-template-columns: 300px minmax(0, 1fr);
+            gap: 20px;
+            padding: 24px 0 34px;
         }
 
         .filter-panel {
             background: #fff;
             border: 1px solid var(--line);
             border-radius: 8px;
-            padding: 18px;
             position: sticky;
             top: 94px;
             align-self: start;
+            max-height: calc(100vh - 112px);
+            display: flex;
+            flex-direction: column;
+            overflow: hidden;
+            box-shadow: 0 12px 30px rgba(16,24,40,0.07);
         }
 
         .filter-heading {
@@ -228,7 +234,9 @@ if (!empty($searchPartialOnly)) {
             align-items: center;
             justify-content: space-between;
             gap: 10px;
-            margin-bottom: 18px;
+            padding: 16px 18px;
+            border-bottom: 1px solid var(--line);
+            background: #fff;
         }
 
         .filter-heading h2 {
@@ -237,7 +245,19 @@ if (!empty($searchPartialOnly)) {
             margin: 0;
         }
 
+        .filter-scroll {
+            min-height: 0;
+            overflow-y: auto;
+            padding: 16px 18px;
+            scrollbar-width: thin;
+            scrollbar-color: #cbd5e1 transparent;
+        }
+
+        .filter-scroll::-webkit-scrollbar { width: 6px; }
+        .filter-scroll::-webkit-scrollbar-thumb { background: #cbd5e1; border-radius: 999px; }
+
         .filter-block { border-top: 1px solid var(--line); padding-top: 16px; margin-top: 16px; }
+        .filter-block:first-child { border-top: 0; padding-top: 0; margin-top: 0; }
         .filter-label {
             color: var(--muted);
             font-size: 0.78rem;
@@ -250,13 +270,32 @@ if (!empty($searchPartialOnly)) {
             display: flex;
             align-items: center;
             gap: 9px;
-            min-height: 34px;
+            min-height: 38px;
+            padding: 4px 8px;
+            border-radius: 8px;
             color: var(--ink);
             font-weight: 700;
             font-size: 0.92rem;
+            cursor: pointer;
+            transition: background .15s ease, color .15s ease;
+        }
+
+        .filter-option:hover { background: #f8fafc; }
+        .filter-option:has(input:checked) {
+            background: #eef4ff;
+            color: #0b5fff;
+            font-weight: 850;
         }
 
         .filter-option input { accent-color: var(--blue); }
+
+        .filter-actions {
+            padding: 16px 18px 18px;
+            border-top: 1px solid var(--line);
+            background: #fff;
+            box-shadow: 0 -10px 24px rgba(16,24,40,0.04);
+        }
+
         .price-inputs {
             display: grid;
             grid-template-columns: 1fr 1fr;
@@ -271,6 +310,21 @@ if (!empty($searchPartialOnly)) {
             min-width: 0;
         }
 
+        .price-inputs input.is-invalid {
+            border-color: #ef4444;
+            box-shadow: 0 0 0 3px rgba(239,68,68,0.12);
+        }
+
+        .price-filter-error {
+            display: none;
+            margin: -2px 0 10px;
+            color: #d92d20;
+            font-size: 0.82rem;
+            font-weight: 800;
+        }
+
+        .price-filter-error.is-visible { display: block; }
+
         .apply-btn, .clear-btn {
             height: 40px;
             border-radius: 8px;
@@ -280,6 +334,7 @@ if (!empty($searchPartialOnly)) {
         }
 
         .apply-btn { background: #111827; color: #fff; }
+        .apply-btn:hover { background: #1f2937; }
         .clear-btn {
             display: inline-flex;
             align-items: center;
@@ -300,6 +355,7 @@ if (!empty($searchPartialOnly)) {
             justify-content: space-between;
             gap: 14px;
             margin-bottom: 16px;
+            box-shadow: 0 10px 24px rgba(16,24,40,0.05);
         }
 
         .toolbar select {
@@ -330,7 +386,7 @@ if (!empty($searchPartialOnly)) {
 
         .product-card:hover {
             transform: translateY(-3px);
-            border-color: #d0d5dd;
+            border-color: #f7c600;
             box-shadow: 0 14px 30px rgba(16,24,40,0.11);
         }
 
@@ -418,7 +474,13 @@ if (!empty($searchPartialOnly)) {
             .header-inner { grid-template-columns: 1fr; padding: 14px 0; }
             .brand { justify-content: center; }
             .layout { grid-template-columns: 1fr; }
-            .filter-panel { position: static; }
+            .filter-panel {
+                position: static;
+                max-height: none;
+            }
+            .filter-scroll {
+                max-height: 360px;
+            }
             .product-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
         }
 
@@ -468,43 +530,44 @@ if (!empty($searchPartialOnly)) {
         <aside class="filter-panel">
             <div class="filter-heading">
                 <h2><i class="fas fa-sliders me-2 text-primary"></i>Bộ lọc</h2>
+                <span class="text-muted small fw-bold">Lọc nhanh</span>
             </div>
 
-            <div class="filter-block mt-0 pt-0 border-0">
-                <div class="filter-label">Danh mục</div>
-                <label class="filter-option">
-                    <input type="radio" name="category_id" value="" <?php echo $selectedCategory === 0 ? 'checked' : ''; ?> onchange="if (!window.SmartPriceAjaxFilters) this.form.submit();">
-                    Tất cả danh mục
-                </label>
-                <?php if(isset($categories)): foreach($categories as $cat): ?>
+            <div class="filter-scroll">
+                <div class="filter-block">
+                    <div class="filter-label">Danh mục</div>
                     <label class="filter-option">
-                        <input type="radio" name="category_id" value="<?php echo (int) $cat['id']; ?>" <?php echo $selectedCategory === (int) $cat['id'] ? 'checked' : ''; ?> onchange="if (!window.SmartPriceAjaxFilters) this.form.submit();">
-                        <?php echo e_search($cat['name']); ?>
+                        <input type="radio" name="category_id" value="" <?php echo $selectedCategory === 0 ? 'checked' : ''; ?> onchange="if (!window.SmartPriceAjaxFilters) this.form.submit();">
+                        Tất cả danh mục
                     </label>
-                <?php endforeach; endif; ?>
+                    <?php if(isset($categories)): foreach($categories as $cat): ?>
+                        <label class="filter-option">
+                            <input type="radio" name="category_id" value="<?php echo (int) $cat['id']; ?>" <?php echo $selectedCategory === (int) $cat['id'] ? 'checked' : ''; ?> onchange="if (!window.SmartPriceAjaxFilters) this.form.submit();">
+                            <?php echo e_search($cat['name']); ?>
+                        </label>
+                    <?php endforeach; endif; ?>
+                </div>
+
+                <div class="filter-block">
+                    <div class="filter-label">Sàn thương mại</div>
+                    <?php foreach(['' => 'Tất cả sàn', 'Tiki' => 'Tiki', 'Shopee' => 'Shopee', 'Lazada' => 'Lazada'] as $value => $label): ?>
+                        <label class="filter-option">
+                            <input type="radio" name="platform_filter" value="<?php echo e_search($value); ?>" <?php echo $selectedPlatform === $value ? 'checked' : ''; ?> onchange="if (!window.SmartPriceAjaxFilters) this.form.submit();">
+                            <?php echo e_search($label); ?>
+                        </label>
+                    <?php endforeach; ?>
+                </div>
             </div>
 
-            <div class="filter-block">
-                <div class="filter-label">Sàn thương mại</div>
-                <?php foreach(['' => 'Tất cả sàn', 'Tiki' => 'Tiki', 'Shopee' => 'Shopee', 'Lazada' => 'Lazada'] as $value => $label): ?>
-                    <label class="filter-option">
-                        <input type="radio" name="platform_filter" value="<?php echo e_search($value); ?>" <?php echo $selectedPlatform === $value ? 'checked' : ''; ?> onchange="if (!window.SmartPriceAjaxFilters) this.form.submit();">
-                        <?php echo e_search($label); ?>
-                    </label>
-                <?php endforeach; ?>
-            </div>
-
-            <div class="filter-block">
+            <div class="filter-actions">
                 <div class="filter-label">Khoảng giá</div>
                 <div class="price-inputs mb-2">
                     <input type="number" name="min_price" placeholder="Từ" value="<?php echo e_search($minPrice); ?>">
                     <input type="number" name="max_price" placeholder="Đến" value="<?php echo e_search($maxPrice); ?>">
                 </div>
                 <button type="submit" class="apply-btn">Áp dụng</button>
-            </div>
 
-            <div class="filter-block">
-                <a href="index.php?role=user&controller=product&action=search&keyword=<?php echo urlencode($keywordValue); ?>" class="clear-btn" data-clear-filters>
+                <a href="index.php?role=user&controller=product&action=search&keyword=<?php echo urlencode($keywordValue); ?>" class="clear-btn mt-2" data-clear-filters>
                     <i class="fas fa-rotate-left me-2"></i>Xóa bộ lọc
                 </a>
             </div>
@@ -527,6 +590,8 @@ if (!empty($searchPartialOnly)) {
     </form>
 </main>
 
+<?php require __DIR__ . '/partials/footer.php'; ?>
+
 <script>
 window.SmartPriceAjaxFilters = true;
 
@@ -535,6 +600,67 @@ const searchSummary = document.querySelector('[data-search-summary]');
 const searchResults = document.querySelector('[data-search-results]');
 const clearFiltersLink = document.querySelector('[data-clear-filters]');
 
+function getPriceInputs() {
+    if (!searchFilterForm) return [];
+    return [
+        searchFilterForm.querySelector('input[name="min_price"]'),
+        searchFilterForm.querySelector('input[name="max_price"]')
+    ].filter(Boolean);
+}
+
+function priceDigits(value) {
+    return String(value || '').replace(/\D/g, '');
+}
+
+function formatPriceInputValue(value) {
+    const digits = priceDigits(value);
+    return digits ? Number(digits).toLocaleString('vi-VN') : '';
+}
+
+function normalizePriceInputs() {
+    getPriceInputs().forEach((input) => {
+        input.type = 'text';
+        input.inputMode = 'numeric';
+        input.autocomplete = 'off';
+        input.value = formatPriceInputValue(input.value);
+    });
+}
+
+function setPriceFilterError(message = '') {
+    if (!searchFilterForm) return;
+    let errorBox = searchFilterForm.querySelector('[data-price-filter-error]');
+    const priceBox = searchFilterForm.querySelector('.price-inputs');
+    if (!errorBox && priceBox) {
+        errorBox = document.createElement('div');
+        errorBox.className = 'price-filter-error';
+        errorBox.dataset.priceFilterError = 'true';
+        priceBox.insertAdjacentElement('afterend', errorBox);
+    }
+
+    getPriceInputs().forEach((input) => input.classList.toggle('is-invalid', Boolean(message)));
+    if (errorBox) {
+        errorBox.textContent = message;
+        errorBox.classList.toggle('is-visible', Boolean(message));
+    }
+}
+
+function validatePriceRange() {
+    const minInput = searchFilterForm?.querySelector('input[name="min_price"]');
+    const maxInput = searchFilterForm?.querySelector('input[name="max_price"]');
+    const minDigits = priceDigits(minInput?.value);
+    const maxDigits = priceDigits(maxInput?.value);
+    const minValue = minDigits ? Number(minDigits) : null;
+    const maxValue = maxDigits ? Number(maxDigits) : null;
+
+    if (minValue !== null && maxValue !== null && maxValue < minValue) {
+        setPriceFilterError('Giá đến phải lớn hơn hoặc bằng giá từ.');
+        return false;
+    }
+
+    setPriceFilterError('');
+    return true;
+}
+
 function buildSearchUrlFromForm(form) {
     const actionUrl = form.dataset.actionUrl || form.getAttribute('action') || 'index.php';
     const url = new URL(actionUrl, window.location.href);
@@ -542,7 +668,9 @@ function buildSearchUrlFromForm(form) {
     const keepEmptyKeys = new Set(['role', 'controller', 'action', 'keyword']);
 
     for (const [key, value] of new FormData(form).entries()) {
-        const stringValue = String(value);
+        const stringValue = key === 'min_price' || key === 'max_price'
+            ? priceDigits(value)
+            : String(value);
         if (stringValue !== '' || keepEmptyKeys.has(key)) {
             params.set(key, stringValue);
         }
@@ -578,9 +706,10 @@ function syncSearchFormFromUrl(url) {
     const maxInput = searchFilterForm.querySelector('input[name="max_price"]');
     const sortInput = searchFilterForm.querySelector('select[name="sort_by"]');
 
-    if (minInput) minInput.value = params.get('min_price') || '';
-    if (maxInput) maxInput.value = params.get('max_price') || '';
+    if (minInput) minInput.value = formatPriceInputValue(params.get('min_price') || '');
+    if (maxInput) maxInput.value = formatPriceInputValue(params.get('max_price') || '');
     if (sortInput) sortInput.value = params.get('sort_by') || 'newest';
+    validatePriceRange();
 }
 
 async function readSearchJson(response) {
@@ -631,8 +760,18 @@ async function loadSearchResults(url, pushUrl = true) {
 }
 
 if (searchFilterForm) {
+    normalizePriceInputs();
+
+    getPriceInputs().forEach((input) => {
+        input.addEventListener('input', () => {
+            input.value = formatPriceInputValue(input.value);
+            validatePriceRange();
+        });
+    });
+
     searchFilterForm.addEventListener('submit', (event) => {
         event.preventDefault();
+        if (!validatePriceRange()) return;
         loadSearchResults(buildSearchUrlFromForm(searchFilterForm).toString(), true);
     });
 

@@ -3,6 +3,7 @@ import random
 import re
 import sys
 import time
+import unicodedata
 from datetime import datetime, timedelta
 from pathlib import Path
 
@@ -14,6 +15,7 @@ from selenium.webdriver.support.ui import WebDriverWait
 
 from app_config import get_chrome_version_main, get_db_config, get_profile_path, load_env
 from bot_lock import FileLock
+from crawler_report import CrawlerRunReport
 
 
 try:
@@ -81,6 +83,7 @@ BATCH_LIMIT = env_int("SHOPEE_BATCH_LIMIT", 8, minimum=1, maximum=30)
 CAPTCHA_COOLDOWN_MINUTES = env_int("SHOPEE_CAPTCHA_COOLDOWN_MINUTES", 180, minimum=15)
 STOP_ON_CAPTCHA = env_bool("SHOPEE_STOP_ON_CAPTCHA", True)
 ALLOW_MANUAL_CLEAR = env_bool("SHOPEE_ALLOW_MANUAL_CLEAR", False)
+MAX_ORIGINAL_PRICE_MULTIPLIER = env_float("SHOPEE_MAX_ORIGINAL_PRICE_MULTIPLIER", 5.0, minimum=1.2, maximum=20.0)
 PAGE_LOAD_TIMEOUT = env_int("SHOPEE_PAGE_LOAD_TIMEOUT", 35, minimum=10, maximum=180)
 MIN_DELAY_SECONDS = env_float("SHOPEE_MIN_DELAY_SECONDS", 6.0, minimum=1.0)
 MAX_DELAY_SECONDS = env_float("SHOPEE_MAX_DELAY_SECONDS", 12.0, minimum=MIN_DELAY_SECONDS)
@@ -197,11 +200,43 @@ def finalize_availability_status(cursor, link_id, requested_status):
 
 def clean_price(raw_price_str):
     try:
-        first_price = str(raw_price_str).split("-")[0]
-        digits = re.sub(r"\D", "", first_price)
-        return int(digits) if digits else None
+        first_part = str(raw_price_str).split("-")[0]
+        price_tokens = re.findall(r"\d{1,3}(?:[.,]\d{3})+|\d+", first_part)
+
+        for token in price_tokens:
+            digits = re.sub(r"\D", "", token)
+            if not digits:
+                continue
+            price = int(digits)
+            if price > 1000:
+                return price
+
+        return None
     except Exception:
         return None
+
+
+def sanitize_original_price(current_price, original_price):
+    try:
+        current_price = int(current_price or 0)
+        original_price = int(original_price or 0)
+    except (TypeError, ValueError):
+        return None
+
+    if current_price <= 0 or original_price <= current_price:
+        return None
+
+    max_allowed = int(current_price * MAX_ORIGINAL_PRICE_MULTIPLIER)
+    if original_price > max_allowed:
+        log(
+            "  [canh bao] Bo qua gia goc Shopee bat thuong: "
+            f"{format_vn_number(original_price)} d "
+            f"(gia hien tai {format_vn_number(current_price)} d, "
+            f"nguong toi da {format_vn_number(max_allowed)} d)."
+        )
+        return None
+
+    return original_price
 
 
 def parse_compact_number(text):
@@ -270,6 +305,13 @@ def get_body_text(driver):
         return ""
 
 
+def normalize_status_text(text):
+    text = str(text or "").lower().replace("đ", "d")
+    text = unicodedata.normalize("NFD", text)
+    text = "".join(ch for ch in text if unicodedata.category(ch) != "Mn")
+    return re.sub(r"\s+", " ", text).strip()
+
+
 def has_visible_selector(driver, selector):
     try:
         elements = driver.find_elements(By.CSS_SELECTOR, selector)
@@ -313,6 +355,46 @@ def detect_captcha_or_login(driver):
 
 def detect_unavailable_status(driver):
     body_text = get_body_text(driver).lower()
+    normalized_text = normalize_status_text(body_text)
+
+    if any(marker in normalized_text for marker in ("sold out", "out of stock", "het hang", "tam het hang", "da ban het")):
+        return AVAILABILITY_OUT_OF_STOCK, "Sàn báo sản phẩm hết hàng"
+
+    if any(
+        marker in normalized_text
+        for marker in (
+            "not found",
+            "product not found",
+            "san pham khong ton tai",
+            "khong tim thay san pham",
+            "san pham da bi xoa",
+            "da bi xoa",
+        )
+    ):
+        return AVAILABILITY_DISCONTINUED, "Sản phẩm không tồn tại hoặc đã bị xóa"
+
+    if any(
+        marker in normalized_text
+        for marker in (
+            "san pham tam an",
+            "san pham dang tam an",
+            "san pham da bi an",
+            "san pham nay da bi an",
+            "tam thoi khong kha dung",
+            "san pham khong kha dung",
+            "mat hang nay khong kha dung",
+            "tam ngung",
+            "tam ngung ban",
+            "ngung ban",
+            "ngung kinh doanh",
+            "temporarily unavailable",
+            "this item is unavailable",
+            "this product is unavailable",
+            "item unavailable",
+            "product unavailable",
+        )
+    ):
+        return AVAILABILITY_TEMPORARILY_UNAVAILABLE, "Sản phẩm tạm ẩn, tạm ngừng bán hoặc không khả dụng"
     if any(marker in body_text for marker in ("sold out", "out of stock", "hết hàng", "het hang")):
         return AVAILABILITY_OUT_OF_STOCK, "Sàn báo sản phẩm hết hàng"
     if any(marker in body_text for marker in ("unavailable", "tạm ngừng", "tam ngung", "ngừng bán", "ngung ban")):
@@ -440,6 +522,11 @@ def save_success(cursor, db, link_id, data):
         db.ping(reconnect=True, attempts=3, delay=2)
     except Exception as exc:
         log(f"  [!] Cảnh báo kết nối lại database: {exc}")
+
+    data["original_price"] = sanitize_original_price(
+        data.get("current_price"),
+        data.get("original_price"),
+    )
 
     now = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
     next_scrape_at = minutes_from_now(SUCCESS_INTERVAL_MINUTES)
@@ -576,7 +663,13 @@ def extract_product_data(driver):
 
     best = sorted(candidates, key=lambda item: (item["font_size"], -item["price"]), reverse=True)[0]
     current_price = best["price"]
-    higher_prices = sorted({item["price"] for item in candidates if item["price"] > current_price})
+    higher_prices = sorted(
+        {
+            item["price"]
+            for item in candidates
+            if current_price < item["price"] <= current_price * MAX_ORIGINAL_PRICE_MULTIPLIER
+        }
+    )
     original_price = higher_prices[0] if higher_prices else None
 
     sold = 0
@@ -679,6 +772,15 @@ def warmup_shopee_home(driver):
 
 
 def main():
+    report = CrawlerRunReport(
+        "Shopee",
+        config={
+            "batch_limit": BATCH_LIMIT,
+            "headless": HEADLESS_MODE,
+            "stop_on_captcha": STOP_ON_CAPTCHA,
+            "success_interval_minutes": SUCCESS_INTERVAL_MINUTES,
+        },
+    )
     log("Bắt đầu chạy bot Shopee")
     log(
         "Cấu hình: "
@@ -697,6 +799,7 @@ def main():
         read_cursor = db.cursor(dictionary=True)
         ensure_scrape_queue_schema(read_cursor, db)
         shopee_links = fetch_shopee_links(read_cursor)
+        report.set_total_candidates(len(shopee_links))
         read_cursor.close()
         cursor = db.cursor()
 
@@ -707,11 +810,14 @@ def main():
         driver = build_driver()
         if not warmup_shopee_home(driver):
             log("[bị chặn] Dừng trước khi quét vì trang chủ Shopee yêu cầu xác minh.")
-            return EXIT_CAPTCHA
+            report.add_note("warmup_blocked_or_captcha")
+            exit_code = EXIT_CAPTCHA
+            return exit_code
 
         for index, link in enumerate(shopee_links, start=1):
             link_id = link["id"]
             url = link["product_url"]
+            link_started = time.perf_counter()
             log("-" * 60)
             log(f"[{index}/{len(shopee_links)}] Đang quét link Shopee ID={link_id}")
 
@@ -721,6 +827,13 @@ def main():
 
                 reason = detect_captcha_or_login(driver)
                 if reason and not handle_blocked_link(driver, cursor, db, link_id, reason):
+                    report.record_link(
+                        link_id,
+                        status_code=STATUS_CAPTCHA,
+                        availability_status=AVAILABILITY_BLOCKED,
+                        elapsed_seconds=time.perf_counter() - link_started,
+                        error_message=reason,
+                    )
                     exit_code = EXIT_CAPTCHA
                     if STOP_ON_CAPTCHA:
                         break
@@ -730,13 +843,20 @@ def main():
 
                 price_ready, blocked_reason = wait_for_price_or_block(driver, timeout=12)
                 if blocked_reason and not handle_blocked_link(driver, cursor, db, link_id, blocked_reason):
+                    report.record_link(
+                        link_id,
+                        status_code=STATUS_CAPTCHA,
+                        availability_status=AVAILABILITY_BLOCKED,
+                        elapsed_seconds=time.perf_counter() - link_started,
+                        error_message=blocked_reason,
+                    )
                     exit_code = EXIT_CAPTCHA
                     if STOP_ON_CAPTCHA:
                         break
                     continue
 
                 unavailable_status, unavailable_message = detect_unavailable_status(driver)
-                if not price_ready and unavailable_status:
+                if unavailable_status:
                     log("  [bỏ qua] Sản phẩm có vẻ đã ngừng bán hoặc bị xóa.")
                     update_status(
                         cursor,
@@ -746,10 +866,18 @@ def main():
                         availability_status=unavailable_status,
                         error_message=unavailable_message,
                     )
+                    report.record_link(
+                        link_id,
+                        status_code=STATUS_NO_PRICE,
+                        availability_status=unavailable_status,
+                        elapsed_seconds=time.perf_counter() - link_started,
+                        error_message=unavailable_message,
+                    )
                     continue
 
                 product_data = extract_product_data(driver)
                 if not product_data:
+                    error_message = "Không trích xuất được giá Shopee hợp lệ"
                     log("  [bỏ qua] Không trích xuất được giá Shopee hợp lệ.")
                     update_status(
                         cursor,
@@ -757,11 +885,25 @@ def main():
                         link_id,
                         STATUS_NO_PRICE,
                         availability_status=AVAILABILITY_FETCH_ERROR,
-                        error_message="Không trích xuất được giá Shopee hợp lệ",
+                        error_message=error_message,
+                    )
+                    report.record_link(
+                        link_id,
+                        status_code=STATUS_NO_PRICE,
+                        availability_status=AVAILABILITY_FETCH_ERROR,
+                        elapsed_seconds=time.perf_counter() - link_started,
+                        error_message=error_message,
                     )
                     continue
 
                 save_success(cursor, db, link_id, product_data)
+                report.record_link(
+                    link_id,
+                    status_code=STATUS_SUCCESS,
+                    availability_status=AVAILABILITY_ACTIVE,
+                    price=product_data.get("current_price"),
+                    elapsed_seconds=time.perf_counter() - link_started,
+                )
                 log(f"  [thành công] Giá hiện tại: {format_vn_number(product_data['current_price'])} đ")
                 if product_data["original_price"]:
                     log(f"  [thành công] Giá gốc: {format_vn_number(product_data['original_price'])} đ")
@@ -774,9 +916,23 @@ def main():
             except WebDriverException as exc:
                 log(f"  [lỗi] Lỗi trình duyệt: {exc}")
                 update_status(cursor, db, link_id, STATUS_ERROR, availability_status=AVAILABILITY_FETCH_ERROR, error_message=str(exc))
+                report.record_link(
+                    link_id,
+                    status_code=STATUS_ERROR,
+                    availability_status=AVAILABILITY_FETCH_ERROR,
+                    elapsed_seconds=time.perf_counter() - link_started,
+                    error_message=str(exc),
+                )
             except Exception as exc:
                 log(f"  [lỗi] Lỗi bất ngờ khi quét link: {exc}")
                 update_status(cursor, db, link_id, STATUS_ERROR, availability_status=AVAILABILITY_FETCH_ERROR, error_message=str(exc))
+                report.record_link(
+                    link_id,
+                    status_code=STATUS_ERROR,
+                    availability_status=AVAILABILITY_FETCH_ERROR,
+                    elapsed_seconds=time.perf_counter() - link_started,
+                    error_message=str(exc),
+                )
 
             time.sleep(random.uniform(MIN_DELAY_SECONDS, MAX_DELAY_SECONDS))
 
@@ -787,8 +943,9 @@ def main():
         return exit_code
 
     except Exception as exc:
+        exit_code = EXIT_FATAL
         log(f"[lỗi nghiêm trọng] Bot Shopee bị lỗi: {exc}")
-        return EXIT_FATAL
+        return exit_code
     finally:
         if driver:
             try:
@@ -802,6 +959,9 @@ def main():
                 pass
         if db and db.is_connected():
             db.close()
+        report_path = report.write(exit_code=exit_code)
+        if report_path:
+            log(f"[report] Da luu bao cao crawler: {report_path}")
 
 
 def run_with_lock():

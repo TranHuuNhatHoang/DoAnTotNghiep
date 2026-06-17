@@ -4,6 +4,7 @@ if (session_status() === PHP_SESSION_NONE) {
 }
 
 $botStats = $botStats ?? [];
+$botTaskWarnings = $botTaskWarnings ?? [];
 $lastRunByPlatform = [];
 foreach ($botStats as $stat) {
     $lastRunByPlatform[$stat['platform_name']] = $stat['last_run'] ?? null;
@@ -159,6 +160,38 @@ $bots = [
             background: #fff;
         }
 
+        .task-warning {
+            border: 1px solid #fed7aa;
+            background: #fff7ed;
+            color: #9a3412;
+            border-radius: 8px;
+            padding: 14px 16px;
+            margin-bottom: 18px;
+            font-weight: 700;
+        }
+
+        .task-warning pre {
+            margin: 8px 0 0;
+            white-space: pre-wrap;
+            color: inherit;
+            font-size: .82rem;
+            font-weight: 600;
+        }
+
+        .bot-alert-badge {
+            display: inline-flex;
+            align-items: center;
+            gap: 6px;
+            border-radius: 999px;
+            padding: 6px 10px;
+            background: #fff7ed;
+            color: #9a3412;
+            border: 1px solid #fed7aa;
+            font-size: .78rem;
+            font-weight: 800;
+            margin-bottom: 12px;
+        }
+
         @media (max-width: 1199px) {
             .bot-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
         }
@@ -210,9 +243,20 @@ $bots = [
         endif;
         ?>
 
+        <?php if (!empty($botTaskWarnings)): ?>
+            <section class="task-warning">
+                <div><i class="fas fa-shield-halved me-2"></i>Có bot tự động đã bị tắt do captcha/block.</div>
+                <div class="small mt-1">Hãy chạy bot thủ công để xử lý xác minh, sau đó bật lại Task Scheduler cho sàn tương ứng.</div>
+                <?php foreach ($botTaskWarnings as $type => $warning): ?>
+                    <pre><?php echo e_admin_bot(strtoupper($type) . ' - ' . ($warning['updated_at'] ?? '') . "\n" . ($warning['message'] ?? '')); ?></pre>
+                <?php endforeach; ?>
+            </section>
+        <?php endif; ?>
+
         <section class="bot-grid">
             <?php foreach ($bots as $bot):
                 $lastRun = $bot['platform'] ? ($lastRunByPlatform[$bot['platform']] ?? null) : null;
+                $taskWarning = $botTaskWarnings[$bot['type']] ?? null;
             ?>
                 <article class="admin-card bot-card">
                     <div class="bot-card-top <?php echo e_admin_bot($bot['tone']); ?>"></div>
@@ -225,6 +269,12 @@ $bots = [
                             <?php endif; ?>
                         </div>
                         <h2 class="h5 fw-bold mb-2"><?php echo e_admin_bot($bot['name']); ?></h2>
+                        <?php if ($taskWarning): ?>
+                            <div class="bot-alert-badge">
+                                <i class="fas fa-triangle-exclamation"></i>
+                                Tự động đã tắt do captcha/block
+                            </div>
+                        <?php endif; ?>
                         <p class="text-muted small mb-3"><?php echo e_admin_bot($bot['desc']); ?></p>
                         <div class="mt-auto">
                             <div class="d-flex justify-content-between gap-3 border-top pt-3 mb-3">

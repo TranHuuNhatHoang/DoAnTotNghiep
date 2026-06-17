@@ -22,8 +22,41 @@ class BotController {
                 FROM platform_links GROUP BY platform_name";
         $result = $this->db->query($sql);
         $botStats = $result ? $result->fetch_all(MYSQLI_ASSOC) : [];
+        $botTaskWarnings = $this->getTaskWarnings();
 
         require_once 'views/admin/bot_management.php';
+    }
+
+    private function getTaskWarnings() {
+        $warnings = [];
+        $files = [
+            'shopee' => __DIR__ . '/../../storage/bot_logs/shopee_task_disabled.flag',
+            'lazada' => __DIR__ . '/../../storage/bot_logs/lazada_task_disabled.flag',
+        ];
+
+        foreach ($files as $type => $path) {
+            if (!is_readable($path)) {
+                continue;
+            }
+
+            $warnings[$type] = [
+                'updated_at' => date('H:i d/m/Y', filemtime($path)),
+                'message' => trim((string) file_get_contents($path)),
+            ];
+        }
+
+        return $warnings;
+    }
+
+    private function clearTaskWarning($type) {
+        $files = [
+            'shopee' => __DIR__ . '/../../storage/bot_logs/shopee_task_disabled.flag',
+            'lazada' => __DIR__ . '/../../storage/bot_logs/lazada_task_disabled.flag',
+        ];
+
+        if (isset($files[$type]) && is_file($files[$type])) {
+            @unlink($files[$type]);
+        }
     }
 
     public function run() {
@@ -101,6 +134,7 @@ class BotController {
                 <div class='text-secondary small'>Chi tiết log:</div>
                 <pre class='text-danger' style='margin-top: 10px;'>{$outputString}</pre>";
         } elseif ($returnVar === 0) {
+            $this->clearTaskWarning($type);
             $_SESSION['bot_status'] = 'success';
             $_SESSION['bot_message'] = "
                 <div class='text-success fw-bold mb-2'>

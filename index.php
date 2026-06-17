@@ -49,6 +49,8 @@ $routes = [
                 'postforgotpassword' => 'postForgotPassword',
                 'resetpassword' => 'resetPassword',
                 'postresetpassword' => 'postResetPassword',
+                'profile' => 'profile',
+                'updateprofile' => 'updateProfile',
                 'logout' => 'logout',
             ],
         ],

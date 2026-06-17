@@ -72,6 +72,8 @@ MATCHER_MIN_DELAY_SECONDS = env_float("MATCHER_MIN_DELAY_SECONDS", 3.0, minimum=
 MATCHER_MAX_DELAY_SECONDS = env_float("MATCHER_MAX_DELAY_SECONDS", 5.0, minimum=MATCHER_MIN_DELAY_SECONDS)
 MATCHER_PROFILE_NAME = os.getenv("MATCHER_PROFILE_NAME", "master_profile")
 MATCHER_LOCK_STALE_MINUTES = env_int("MATCHER_LOCK_STALE_MINUTES", 180, minimum=30)
+MATCHER_STOP_ON_CAPTCHA = env_bool("MATCHER_STOP_ON_CAPTCHA", True)
+MATCHER_ALLOW_MANUAL_CLEAR = env_bool("MATCHER_ALLOW_MANUAL_CLEAR", False)
 MATCHER_PLATFORMS = [
     item.strip()
     for item in os.getenv("MATCHER_PLATFORMS", "Shopee,Lazada").split(",")
@@ -129,7 +131,7 @@ def get_body_text(driver):
 
 def detect_captcha_or_login(driver, platform):
     current_url = (driver.current_url or "").lower()
-    common_url_markers = ("login", "captcha", "verify")
+    common_url_markers = ("login", "captcha", "verify", "buyer/login", "account/login", "/login")
     platform_markers = ("baxia", "punish") if platform == "Lazada" else ()
     for marker in common_url_markers + platform_markers:
         if marker in current_url:
@@ -139,6 +141,16 @@ def detect_captcha_or_login(driver, platform):
     text_markers = (
         "captcha",
         "slide to verify",
+        "drag the slider",
+        "please verify",
+        "security verification",
+        "unusual traffic",
+        "access denied",
+        "are you a robot",
+        "not a robot",
+        "i am not a robot",
+        "robot check",
+        "prove you are human",
         "xác minh",
         "xac minh",
         "security check",
@@ -154,6 +166,8 @@ def detect_captcha_or_login(driver, platform):
         "iframe[src*='baxia']",
         "[class*='captcha']",
         "[id*='captcha']",
+        "[class*='verify']",
+        "[id*='verify']",
         "[class*='baxia']",
         "[id*='baxia']",
     )
@@ -191,6 +205,9 @@ def save_debug_artifacts(driver, platform, product_id, reason):
 
 
 def wait_for_manual_clear(driver, platform, reason):
+    if not MATCHER_ALLOW_MANUAL_CLEAR:
+        return False
+
     if not sys.stdin.isatty():
         return False
 
@@ -289,6 +306,14 @@ def find_best_match(driver, platform, product):
     driver.execute_script("window.scrollBy(0, 650);")
     time.sleep(2)
 
+    reason = detect_captcha_or_login(driver, platform)
+    if reason:
+        save_debug_artifacts(driver, platform, product["id"], reason)
+        if wait_for_manual_clear(driver, platform, reason):
+            log("  [thá»§ cĂ´ng] ÄĂ£ xá»­ lĂ½ xĂ¡c minh. Tiáº¿p tá»¥c tĂ¬m link.")
+        else:
+            return {"blocked": True, "reason": reason}
+
     cards = driver.find_elements(By.XPATH, config["xpath"])
     best_match_url = ""
     best_match_score = 0
@@ -334,6 +359,12 @@ def run_matcher():
             f"số ứng viên mỗi sản phẩm={MATCHER_MAX_CARDS}"
         )
 
+        log(
+            "Captcha mode: "
+            f"headless={MATCHER_HEADLESS}, stop_on_captcha={MATCHER_STOP_ON_CAPTCHA}, "
+            f"allow_manual_clear={MATCHER_ALLOW_MANUAL_CLEAR}"
+        )
+
         conn = mysql.connector.connect(**get_db_config())
         driver = create_driver()
 
@@ -359,7 +390,9 @@ def run_matcher():
                     if result.get("blocked"):
                         log(f"  [bị chặn] {platform} yêu cầu captcha/đăng nhập: {result['reason']}")
                         exit_code = EXIT_CAPTCHA
-                        break
+                        if MATCHER_STOP_ON_CAPTCHA:
+                            break
+                        continue
 
                     if result["score"] >= MATCHER_THRESHOLD and result["url"]:
                         log(f"  [khớp] {result['name'][:70]}...")
@@ -376,7 +409,7 @@ def run_matcher():
 
                 time.sleep(random.uniform(MATCHER_MIN_DELAY_SECONDS, MATCHER_MAX_DELAY_SECONDS))
 
-            if exit_code == EXIT_CAPTCHA:
+            if exit_code == EXIT_CAPTCHA and MATCHER_STOP_ON_CAPTCHA:
                 break
 
         if exit_code == EXIT_OK:

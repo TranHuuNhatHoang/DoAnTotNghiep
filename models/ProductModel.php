@@ -24,7 +24,34 @@ class ProductModel {
         $sql = "SELECT p.*,
                 c.name as category_name,
                 (SELECT COUNT(*) FROM platform_links WHERE product_id = p.id AND {$validPriceWhere}) as total_active_links,
-                (SELECT MIN(current_price) FROM platform_links WHERE product_id = p.id AND {$validPriceWhere}) as min_price
+                (SELECT MIN(current_price) FROM platform_links WHERE product_id = p.id AND {$validPriceWhere}) as min_price,
+                (SELECT current_price
+                    FROM platform_links
+                    WHERE product_id = p.id
+                      AND platform_name = 'Tiki'
+                      AND {$validPriceWhere}
+                      AND original_price > current_price
+                      AND original_price <= current_price * 5
+                    ORDER BY current_price ASC
+                    LIMIT 1) as deal_current_price,
+                (SELECT original_price
+                    FROM platform_links
+                    WHERE product_id = p.id
+                      AND platform_name = 'Tiki'
+                      AND {$validPriceWhere}
+                      AND original_price > current_price
+                      AND original_price <= current_price * 5
+                    ORDER BY current_price ASC
+                    LIMIT 1) as original_price,
+                (SELECT ROUND(((original_price - current_price) / original_price) * 100)
+                    FROM platform_links
+                    WHERE product_id = p.id
+                      AND platform_name = 'Tiki'
+                      AND {$validPriceWhere}
+                      AND original_price > current_price
+                      AND original_price <= current_price * 5
+                    ORDER BY current_price ASC
+                    LIMIT 1) as discount_percent
                 {$lastUpdateSelect}
                 FROM products p
                 LEFT JOIN categories c ON p.category_id = c.id
@@ -49,7 +76,32 @@ class ProductModel {
     }
 
     public function getTopDeals() {
-        return $this->fetchProductCards('total_active_links DESC', 4, 'total_active_links > 1');
+        return $this->fetchProductCards('discount_percent DESC, total_active_links DESC, min_price ASC', 8, 'min_price IS NOT NULL');
+    }
+
+    public function getRecommendedBuyProducts($limit = 4) {
+        $products = $this->fetchProductCards('p.id DESC', 40, "min_price IS NOT NULL AND total_active_links > 0", true);
+        $recommended = [];
+
+        foreach ($products as $product) {
+            $analysis = $this->getPriceAnalysis((int) ($product['id'] ?? 0), 30);
+            if (($analysis['recommendation']['code'] ?? '') !== 'buy') {
+                continue;
+            }
+
+            $product['price_analysis'] = $analysis;
+            $product['recommendation_label'] = $analysis['recommendation']['label'] ?? '';
+            $product['recommendation_reason'] = $analysis['recommendation']['reason'] ?? '';
+            $product['trend_label'] = $analysis['trend']['label'] ?? '';
+            $product['trend_change_percent'] = $analysis['trend']['change_percent'] ?? 0;
+            $recommended[] = $product;
+
+            if (count($recommended) >= (int) $limit) {
+                break;
+            }
+        }
+
+        return $recommended;
     }
 
     public function searchProducts($keyword, $categoryId = null) {
@@ -446,6 +498,264 @@ class ProductModel {
         $stmt->bind_param("i", $productId);
         $stmt->execute();
         return $stmt->get_result()->fetch_assoc();
+    }
+
+    public function getPriceAnalysis($productId, $days = 30) {
+        $productId = (int) $productId;
+        $days = max(7, (int) $days);
+        $bestPlatform = $this->getCurrentBestPlatform($productId);
+        $currentPrice = (int) ($bestPlatform['current_price'] ?? 0);
+        $dailyPrices = $this->getDailyMinPriceHistory($productId, $days);
+        $analysisPeriodDays = $days;
+        if (count($dailyPrices) < 3) {
+            $allHistoryPrices = $this->getDailyMinPriceHistory($productId, null);
+            if (count($allHistoryPrices) > count($dailyPrices)) {
+                $dailyPrices = $allHistoryPrices;
+                $analysisPeriodDays = null;
+            }
+        }
+        $prices = array_map(static function ($row) {
+            return (int) ($row['min_price'] ?? 0);
+        }, $dailyPrices);
+        $prices = array_values(array_filter($prices, static function ($price) {
+            return $price > 0;
+        }));
+
+        $analysis = [
+            'period_days' => $analysisPeriodDays,
+            'period_label' => $analysisPeriodDays === null ? 'toàn bộ lịch sử' : $analysisPeriodDays . ' ngày',
+            'data_points' => count($prices),
+            'confidence' => $this->buildAnalysisConfidence(count($prices)),
+            'current_price' => $currentPrice,
+            'best_platform' => $bestPlatform['platform_name'] ?? null,
+            'min_price' => 0,
+            'max_price' => 0,
+            'avg_price' => 0,
+            'volatility_percent' => 0,
+            'current_vs_avg_percent' => 0,
+            'near_low_percent' => 0,
+            'up_count' => 0,
+            'down_count' => 0,
+            'stable_count' => 0,
+            'trend' => [
+                'code' => 'insufficient',
+                'label' => 'Chưa đủ dữ liệu',
+                'change_percent' => 0,
+                'message' => 'Cần thêm lịch sử giá để xác định xu hướng.',
+            ],
+            'recommendation' => [
+                'code' => 'insufficient',
+                'label' => 'Chưa đủ dữ liệu',
+                'message' => 'Hệ thống cần thêm dữ liệu lịch sử trước khi gợi ý thời điểm mua.',
+                'reason' => 'Dữ liệu lịch sử còn ít, hệ thống chưa đưa ra khuyến nghị mạnh.',
+            ],
+        ];
+
+        if (empty($prices)) {
+            return $analysis;
+        }
+
+        $minPrice = min($prices);
+        $maxPrice = max($prices);
+        $avgPrice = array_sum($prices) / count($prices);
+
+        $analysis['min_price'] = $minPrice;
+        $analysis['max_price'] = $maxPrice;
+        $analysis['avg_price'] = (int) round($avgPrice);
+        $analysis['volatility_percent'] = $avgPrice > 0 ? round((($maxPrice - $minPrice) / $avgPrice) * 100, 1) : 0;
+        $analysis['current_vs_avg_percent'] = ($currentPrice > 0 && $avgPrice > 0) ? round((($currentPrice - $avgPrice) / $avgPrice) * 100, 1) : 0;
+        $analysis['near_low_percent'] = ($currentPrice > 0 && $minPrice > 0) ? round((($currentPrice - $minPrice) / $minPrice) * 100, 1) : 0;
+
+        for ($i = 1, $count = count($prices); $i < $count; $i++) {
+            if ($prices[$i] > $prices[$i - 1]) {
+                $analysis['up_count']++;
+            } elseif ($prices[$i] < $prices[$i - 1]) {
+                $analysis['down_count']++;
+            } else {
+                $analysis['stable_count']++;
+            }
+        }
+
+        $analysis['trend'] = $this->buildPriceTrend($prices);
+        $analysis['recommendation'] = $this->buildPurchaseRecommendation($analysis);
+
+        return $analysis;
+    }
+
+    private function getCurrentBestPlatform($productId) {
+        $validPriceWhere = $this->validPriceCondition('pl');
+        $stmt = $this->conn->prepare("
+            SELECT pl.platform_name, pl.current_price
+            FROM platform_links pl
+            WHERE pl.product_id = ?
+              AND {$validPriceWhere}
+            ORDER BY pl.current_price ASC
+            LIMIT 1
+        ");
+        if (!$stmt) return null;
+
+        $stmt->bind_param("i", $productId);
+        $stmt->execute();
+        return $stmt->get_result()->fetch_assoc();
+    }
+
+    private function getDailyMinPriceHistory($productId, $days = null) {
+        $dateFilter = '';
+        if ($days !== null) {
+            $days = max(1, (int) $days);
+            $dateFilter = "AND ph.scraped_at >= DATE_SUB(NOW(), INTERVAL {$days} DAY)";
+        }
+
+        $sql = "SELECT DATE(ph.scraped_at) as price_date, MIN(ph.price) as min_price
+                FROM price_history ph
+                JOIN platform_links pl ON ph.link_id = pl.id
+                WHERE pl.product_id = ?
+                  AND ph.price > 0
+                  {$dateFilter}
+                GROUP BY DATE(ph.scraped_at)
+                ORDER BY price_date ASC";
+        $stmt = $this->conn->prepare($sql);
+        if (!$stmt) return [];
+
+        $stmt->bind_param("i", $productId);
+        $stmt->execute();
+        return $stmt->get_result()->fetch_all(MYSQLI_ASSOC);
+    }
+
+    private function buildPriceTrend($prices) {
+        if (count($prices) < 2) {
+            return [
+                'code' => 'insufficient',
+                'label' => 'Chưa đủ dữ liệu',
+                'change_percent' => 0,
+                'message' => 'Cần thêm lịch sử giá để xác định xu hướng.',
+            ];
+        }
+
+        $first = (int) reset($prices);
+        $last = (int) end($prices);
+        $changePercent = $first > 0 ? round((($last - $first) / $first) * 100, 1) : 0;
+        $isPreliminary = count($prices) < 3;
+        $messageSuffix = $isPreliminary ? ' Đây là nhận định sơ bộ vì dữ liệu còn ít.' : '';
+
+        if ($changePercent <= -3) {
+            return [
+                'code' => 'decreasing',
+                'label' => $isPreliminary ? 'Giảm sơ bộ' : 'Đang giảm',
+                'change_percent' => $changePercent,
+                'message' => 'Giá có xu hướng giảm trong giai đoạn gần đây.' . $messageSuffix,
+            ];
+        }
+
+        if ($changePercent >= 3) {
+            return [
+                'code' => 'increasing',
+                'label' => $isPreliminary ? 'Tăng sơ bộ' : 'Đang tăng',
+                'change_percent' => $changePercent,
+                'message' => 'Giá có xu hướng tăng trong giai đoạn gần đây.' . $messageSuffix,
+            ];
+        }
+
+        return [
+            'code' => 'stable',
+            'label' => $isPreliminary ? 'Ổn định sơ bộ' : 'Ổn định',
+            'change_percent' => $changePercent,
+            'message' => 'Giá dao động nhẹ, chưa có xu hướng mạnh.' . $messageSuffix,
+        ];
+    }
+
+    private function buildPurchaseRecommendation($analysis) {
+        $currentPrice = (int) ($analysis['current_price'] ?? 0);
+        $minPrice = (int) ($analysis['min_price'] ?? 0);
+        $avgPrice = (int) ($analysis['avg_price'] ?? 0);
+        $dataPoints = (int) ($analysis['data_points'] ?? 0);
+        $trendCode = $analysis['trend']['code'] ?? 'insufficient';
+
+        if ($dataPoints < 3 || $currentPrice <= 0 || $avgPrice <= 0 || $minPrice <= 0) {
+            return [
+                'code' => 'insufficient',
+                'label' => 'Theo dõi thêm',
+                'message' => 'Dữ liệu lịch sử còn ít, nên tiếp tục theo dõi thêm trước khi quyết định.',
+                'reason' => 'Dữ liệu lịch sử còn ít, hệ thống chưa đưa ra khuyến nghị mạnh.',
+            ];
+        }
+
+        if ($currentPrice <= $minPrice * 1.03) {
+            return [
+                'code' => 'buy',
+                'label' => 'Nên mua',
+                'message' => 'Giá hiện tại đang rất gần mức thấp nhất trong kỳ phân tích.',
+                'reason' => 'Giá chỉ cao hơn mức thấp nhất khoảng ' . max(0, $analysis['near_low_percent']) . '%.',
+            ];
+        }
+
+        if ($currentPrice <= $avgPrice * 0.9) {
+            return [
+                'code' => 'buy',
+                'label' => 'Nên mua',
+                'message' => 'Giá hiện tại thấp hơn đáng kể so với giá trung bình.',
+                'reason' => 'Thấp hơn trung bình khoảng ' . abs($analysis['current_vs_avg_percent']) . '%.',
+            ];
+        }
+
+        if ($trendCode === 'decreasing' && $currentPrice > $minPrice * 1.05) {
+            return [
+                'code' => 'wait',
+                'label' => 'Nên chờ thêm',
+                'message' => 'Giá đang có xu hướng giảm, có thể tiếp tục theo dõi thêm.',
+                'reason' => 'Giá hiện tại vẫn cao hơn mức thấp nhất khoảng ' . $analysis['near_low_percent'] . '%.',
+            ];
+        }
+
+        if ($currentPrice >= $avgPrice * 1.1) {
+            return [
+                'code' => 'wait',
+                'label' => 'Nên chờ thêm',
+                'message' => 'Giá hiện tại đang cao hơn giá trung bình trong kỳ phân tích.',
+                'reason' => 'Cao hơn trung bình khoảng ' . $analysis['current_vs_avg_percent'] . '%.',
+            ];
+        }
+
+        return [
+            'code' => 'consider',
+            'label' => 'Có thể cân nhắc',
+            'message' => 'Giá hiện tại chưa phải mức thấp nhất nhưng vẫn nằm trong vùng hợp lý.',
+            'reason' => 'Nên so sánh thêm giữa các sàn trước khi mua.',
+        ];
+    }
+
+    private function buildAnalysisConfidence($dataPoints) {
+        $dataPoints = (int) $dataPoints;
+
+        if ($dataPoints <= 0) {
+            return [
+                'code' => 'none',
+                'label' => 'Chưa có dữ liệu',
+                'message' => 'Chưa có lịch sử giá để đánh giá độ tin cậy.',
+            ];
+        }
+
+        if ($dataPoints < 3) {
+            return [
+                'code' => 'low',
+                'label' => 'Thấp',
+                'message' => 'Dữ liệu còn ít, kết quả chỉ mang tính tham khảo.',
+            ];
+        }
+
+        if ($dataPoints < 7) {
+            return [
+                'code' => 'medium',
+                'label' => 'Trung bình',
+                'message' => 'Đã có đủ dữ liệu cơ bản để phân tích xu hướng.',
+            ];
+        }
+
+        return [
+            'code' => 'good',
+            'label' => 'Tốt',
+            'message' => 'Dữ liệu lịch sử tương đối đầy đủ cho phân tích hiện tại.',
+        ];
     }
 
     public function buildPlatformLinkMeta($platformName, $url) {

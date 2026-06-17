@@ -15,6 +15,7 @@ from selenium.webdriver.support import expected_conditions as EC
 
 from app_config import get_chrome_version_main, get_db_config, get_profile_path, load_env
 from bot_lock import FileLock
+from crawler_report import CrawlerRunReport
 
 
 try:
@@ -81,6 +82,7 @@ BATCH_LIMIT = env_int("LAZADA_BATCH_LIMIT", 100, minimum=1, maximum=500)
 CHUNK_SIZE = env_int("LAZADA_CHUNK_SIZE", 25, minimum=1, maximum=100)
 CAPTCHA_COOLDOWN_MINUTES = env_int("LAZADA_CAPTCHA_COOLDOWN_MINUTES", 180, minimum=15)
 STOP_ON_CAPTCHA = env_bool("LAZADA_STOP_ON_CAPTCHA", True)
+ALLOW_MANUAL_CLEAR = env_bool("LAZADA_ALLOW_MANUAL_CLEAR", False)
 PAGE_LOAD_TIMEOUT = env_int("LAZADA_PAGE_LOAD_TIMEOUT", 45, minimum=10, maximum=180)
 MIN_DELAY_SECONDS = env_float("LAZADA_MIN_DELAY_SECONDS", 3.0, minimum=1.0)
 MAX_DELAY_SECONDS = env_float("LAZADA_MAX_DELAY_SECONDS", 5.0, minimum=MIN_DELAY_SECONDS)
@@ -266,13 +268,20 @@ def save_debug_artifacts(driver, link_id, reason):
 
 
 def wait_for_manual_clear(driver, reason):
+    if not ALLOW_MANUAL_CLEAR:
+        return False
+
     if not sys.stdin.isatty():
         return False
 
     log("")
     log(f"  [thủ công] Lazada yêu cầu xác minh ({reason}).")
     log("  [thủ công] Hãy xử lý trong cửa sổ Chrome đang mở, sau đó quay lại terminal.")
-    input("  Nhấn ENTER khi trang đã vào được bình thường...")
+    try:
+        input("  Nhấn ENTER khi trang đã vào được bình thường...")
+    except EOFError:
+        return False
+
     time.sleep(2)
     return detect_captcha_or_login(driver) is None
 
@@ -548,6 +557,16 @@ def run_lazada_crawler():
     db = None
     cursor = None
     exit_code = EXIT_OK
+    report = CrawlerRunReport(
+        "Lazada",
+        config={
+            "batch_limit": BATCH_LIMIT,
+            "chunk_size": CHUNK_SIZE,
+            "headless": HEADLESS_MODE,
+            "stop_on_captcha": STOP_ON_CAPTCHA,
+            "success_interval_minutes": SUCCESS_INTERVAL_MINUTES,
+        },
+    )
 
     try:
         log("Bắt đầu chạy bot Lazada")
@@ -560,6 +579,7 @@ def run_lazada_crawler():
         db = mysql.connector.connect(**get_db_config())
         read_cursor = db.cursor(dictionary=True)
         lazada_links = fetch_lazada_links(read_cursor)
+        report.set_total_candidates(len(lazada_links))
         read_cursor.close()
         cursor = db.cursor()
 
@@ -579,12 +599,14 @@ def run_lazada_crawler():
             try:
                 driver = create_driver()
                 if not warmup_lazada_home(driver):
+                    report.add_note("warmup_blocked_or_captcha")
                     exit_code = EXIT_CAPTCHA
                     break
 
                 for index, link in enumerate(current_chunk, start=1):
                     link_id = link["id"]
                     url = link["product_url"]
+                    link_started = time.perf_counter()
                     log("-" * 60)
                     log(f"[{index}/{len(current_chunk)}] Đang quét link Lazada ID={link_id}")
 
@@ -594,6 +616,13 @@ def run_lazada_crawler():
 
                         reason = detect_captcha_or_login(driver)
                         if reason and not handle_blocked_link(driver, cursor, db, link_id, reason):
+                            report.record_link(
+                                link_id,
+                                status_code=STATUS_CAPTCHA,
+                                availability_status=AVAILABILITY_BLOCKED,
+                                elapsed_seconds=time.perf_counter() - link_started,
+                                error_message=reason,
+                            )
                             exit_code = EXIT_CAPTCHA
                             if STOP_ON_CAPTCHA:
                                 break
@@ -604,6 +633,13 @@ def run_lazada_crawler():
 
                         reason = detect_captcha_or_login(driver)
                         if reason and not handle_blocked_link(driver, cursor, db, link_id, reason):
+                            report.record_link(
+                                link_id,
+                                status_code=STATUS_CAPTCHA,
+                                availability_status=AVAILABILITY_BLOCKED,
+                                elapsed_seconds=time.perf_counter() - link_started,
+                                error_message=reason,
+                            )
                             exit_code = EXIT_CAPTCHA
                             if STOP_ON_CAPTCHA:
                                 break
@@ -612,18 +648,33 @@ def run_lazada_crawler():
                         data = extract_lazada_data(driver)
                         if not data:
                             availability_status, unavailable_message = detect_unavailable_status(driver)
+                            error_message = unavailable_message or "Không trích xuất được giá Lazada hợp lệ"
                             update_status(
                                 cursor,
                                 db,
                                 link_id,
                                 STATUS_NO_PRICE,
                                 availability_status or AVAILABILITY_FETCH_ERROR,
-                                unavailable_message or "Không trích xuất được giá Lazada hợp lệ",
+                                error_message,
+                            )
+                            report.record_link(
+                                link_id,
+                                status_code=STATUS_NO_PRICE,
+                                availability_status=availability_status or AVAILABILITY_FETCH_ERROR,
+                                elapsed_seconds=time.perf_counter() - link_started,
+                                error_message=error_message,
                             )
                             log("  [bỏ qua] Không trích xuất được giá Lazada hợp lệ.")
                             continue
 
                         save_success(cursor, db, link_id, data)
+                        report.record_link(
+                            link_id,
+                            status_code=STATUS_SUCCESS,
+                            availability_status=AVAILABILITY_ACTIVE,
+                            price=data.get("current_price"),
+                            elapsed_seconds=time.perf_counter() - link_started,
+                        )
                         log(f"  [thành công] Giá hiện tại: {format_vn_number(data['current_price'])} đ")
                         if data["original_price"]:
                             log(f"  [thành công] Giá gốc: {format_vn_number(data['original_price'])} đ")
@@ -637,9 +688,23 @@ def run_lazada_crawler():
 
                     except WebDriverException as exc:
                         update_status(cursor, db, link_id, STATUS_ERROR, AVAILABILITY_FETCH_ERROR, str(exc))
+                        report.record_link(
+                            link_id,
+                            status_code=STATUS_ERROR,
+                            availability_status=AVAILABILITY_FETCH_ERROR,
+                            elapsed_seconds=time.perf_counter() - link_started,
+                            error_message=str(exc),
+                        )
                         log(f"  [lỗi] Lỗi trình duyệt khi quét link: {exc}")
                     except Exception as exc:
                         update_status(cursor, db, link_id, STATUS_ERROR, AVAILABILITY_FETCH_ERROR, str(exc))
+                        report.record_link(
+                            link_id,
+                            status_code=STATUS_ERROR,
+                            availability_status=AVAILABILITY_FETCH_ERROR,
+                            elapsed_seconds=time.perf_counter() - link_started,
+                            error_message=str(exc),
+                        )
                         log(f"  [lỗi] Lỗi bất ngờ khi quét link: {exc}")
 
                     if exit_code == EXIT_CAPTCHA and STOP_ON_CAPTCHA:
@@ -649,6 +714,7 @@ def run_lazada_crawler():
 
             except Exception as exc:
                 log(f"[lỗi] Mẻ quét Lazada bị lỗi: {exc}")
+                report.add_note(f"chunk_{chunk_index}_error: {exc}")
             finally:
                 if driver:
                     try:
@@ -671,13 +737,17 @@ def run_lazada_crawler():
         return exit_code
 
     except Exception as exc:
+        exit_code = EXIT_FATAL
         log(f"[lỗi nghiêm trọng] Bot Lazada bị lỗi: {exc}")
-        return EXIT_FATAL
+        return exit_code
     finally:
         if cursor:
             cursor.close()
         if db and db.is_connected():
             db.close()
+        report_path = report.write(exit_code=exit_code)
+        if report_path:
+            log(f"[report] Da luu bao cao crawler: {report_path}")
 
 
 def run_with_lock():

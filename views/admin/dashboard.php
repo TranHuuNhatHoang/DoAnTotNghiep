@@ -5,6 +5,18 @@ $stats = $stats ?? [
     'total_alerts' => 0,
     'total_users' => 0,
 ];
+$priceInsightStats = $priceInsightStats ?? [
+    'active_price_links' => 0,
+    'problem_links' => 0,
+    'history_points' => 0,
+    'products_with_history' => 0,
+];
+$trendStats = $trendStats ?? [
+    'increasing' => 0,
+    'decreasing' => 0,
+    'stable' => 0,
+    'insufficient' => 0,
+];
 
 $statCards = [
     [
@@ -182,14 +194,66 @@ $statCards = [
 
         .ops-row:last-child { border-bottom: 0; }
 
+        .insight-grid {
+            display: grid;
+            grid-template-columns: repeat(4, minmax(0, 1fr));
+            gap: 14px;
+            margin-top: 20px;
+        }
+
+        .insight-stat {
+            padding: 18px;
+            border: 1px solid #e4e7ec;
+            border-radius: 8px;
+            background: #fff;
+        }
+
+        .insight-label {
+            color: #667085;
+            font-size: .84rem;
+            font-weight: 850;
+            margin-bottom: 8px;
+        }
+
+        .insight-value {
+            color: #101828;
+            font-size: 1.55rem;
+            line-height: 1;
+            font-weight: 950;
+        }
+
+        .trend-grid {
+            display: grid;
+            grid-template-columns: repeat(4, minmax(0, 1fr));
+            gap: 10px;
+        }
+
+        .trend-pill {
+            padding: 13px;
+            border-radius: 8px;
+            background: #f8fafc;
+            border: 1px solid #edf2f7;
+        }
+
+        .trend-pill strong {
+            display: block;
+            font-size: 1.25rem;
+            line-height: 1;
+            margin-bottom: 5px;
+        }
+
         @media (max-width: 1199px) {
             .metric-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
             .admin-workspace { grid-template-columns: 1fr; }
+            .insight-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+            .trend-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
         }
 
         @media (max-width: 575px) {
             .metric-grid,
-            .action-list {
+            .action-list,
+            .insight-grid,
+            .trend-grid {
                 grid-template-columns: 1fr;
             }
         }
@@ -223,6 +287,86 @@ $statCards = [
                     <div class="metric-desc"><?php echo htmlspecialchars($card['desc'], ENT_QUOTES, 'UTF-8'); ?></div>
                 </article>
             <?php endforeach; ?>
+        </section>
+
+        <section class="admin-card p-4 mt-4">
+            <div class="d-flex justify-content-between align-items-start gap-3 mb-3">
+                <div>
+                    <h2 class="h5 fw-bold mb-1">Thống kê dữ liệu giá</h2>
+                    <p class="text-muted mb-0">Tổng hợp dữ liệu phục vụ phân tích biến động giá, xu hướng và giám sát chất lượng dữ liệu.</p>
+                </div>
+                <a class="btn btn-outline-primary btn-sm" href="index.php?role=admin&controller=adminPlatform&action=index">
+                    <i class="fas fa-link me-1"></i> Xem link sàn
+                </a>
+            </div>
+            <div class="insight-grid">
+                <div class="insight-stat">
+                    <div class="insight-label">Link giá hợp lệ</div>
+                    <div class="insight-value"><?php echo number_format((float) ($priceInsightStats['active_price_links'] ?? 0), 0, ',', '.'); ?></div>
+                </div>
+                <div class="insight-stat">
+                    <div class="insight-label">Link cần kiểm tra</div>
+                    <div class="insight-value"><?php echo number_format((float) ($priceInsightStats['problem_links'] ?? 0), 0, ',', '.'); ?></div>
+                </div>
+                <div class="insight-stat">
+                    <div class="insight-label">Mốc lịch sử giá</div>
+                    <div class="insight-value"><?php echo number_format((float) ($priceInsightStats['history_points'] ?? 0), 0, ',', '.'); ?></div>
+                </div>
+                <div class="insight-stat">
+                    <div class="insight-label">Sản phẩm có lịch sử</div>
+                    <div class="insight-value"><?php echo number_format((float) ($priceInsightStats['products_with_history'] ?? 0), 0, ',', '.'); ?></div>
+                </div>
+            </div>
+        </section>
+
+        <section class="admin-workspace">
+            <div class="admin-card p-4">
+                <div class="d-flex justify-content-between align-items-start gap-3 mb-3">
+                    <div>
+                        <h2 class="h5 fw-bold mb-1">Xu hướng giá gần đây</h2>
+                        <p class="text-muted mb-0">Phân loại cơ bản theo dữ liệu lịch sử hiện có, dùng để minh họa dashboard thống kê.</p>
+                    </div>
+                </div>
+                <div class="trend-grid">
+                    <div class="trend-pill">
+                        <strong class="text-danger"><?php echo number_format((float) ($trendStats['increasing'] ?? 0), 0, ',', '.'); ?></strong>
+                        <span class="text-muted">Đang tăng</span>
+                    </div>
+                    <div class="trend-pill">
+                        <strong class="text-success"><?php echo number_format((float) ($trendStats['decreasing'] ?? 0), 0, ',', '.'); ?></strong>
+                        <span class="text-muted">Đang giảm</span>
+                    </div>
+                    <div class="trend-pill">
+                        <strong class="text-primary"><?php echo number_format((float) ($trendStats['stable'] ?? 0), 0, ',', '.'); ?></strong>
+                        <span class="text-muted">Ổn định</span>
+                    </div>
+                    <div class="trend-pill">
+                        <strong class="text-secondary"><?php echo number_format((float) ($trendStats['insufficient'] ?? 0), 0, ',', '.'); ?></strong>
+                        <span class="text-muted">Chưa đủ dữ liệu</span>
+                    </div>
+                </div>
+            </div>
+
+            <aside class="admin-card p-4">
+                <h2 class="h5 fw-bold mb-1">Chất lượng dữ liệu</h2>
+                <p class="text-muted mb-3">Các chỉ số giúp admin biết dữ liệu giá đã đủ tốt để phân tích hay chưa.</p>
+                <div class="ops-row">
+                    <span class="text-muted">Sản phẩm chưa đủ dữ liệu</span>
+                    <strong><?php echo number_format((float) ($trendStats['insufficient'] ?? 0), 0, ',', '.'); ?></strong>
+                </div>
+                <div class="ops-row">
+                    <span class="text-muted">Link cần kiểm tra</span>
+                    <strong><?php echo number_format((float) ($priceInsightStats['problem_links'] ?? 0), 0, ',', '.'); ?></strong>
+                </div>
+                <div class="ops-row">
+                    <span class="text-muted">Sản phẩm có lịch sử giá</span>
+                    <strong><?php echo number_format((float) ($priceInsightStats['products_with_history'] ?? 0), 0, ',', '.'); ?></strong>
+                </div>
+                <div class="ops-row">
+                    <span class="text-muted">Mốc lịch sử giá</span>
+                    <strong><?php echo number_format((float) ($priceInsightStats['history_points'] ?? 0), 0, ',', '.'); ?></strong>
+                </div>
+            </aside>
         </section>
 
         <section class="admin-workspace">

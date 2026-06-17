@@ -1,6 +1,16 @@
+# Database connector for Python crawlers
 mysql-connector-python
+
+# HTTP crawler for Tiki
 requests
+
+# Browser automation for Shopee/Lazada and multi-platform matcher
 selenium
 undetected-chromedriver
+
+# Fuzzy name matching for automatic platform link matcher
 thefuzz
 python-Levenshtein
+
+# Optional but recommended for crawler RAM/process-tree reports
+psutil
